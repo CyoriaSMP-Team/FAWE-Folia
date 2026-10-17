@@ -67,7 +67,7 @@ public class PaperweightFaweWorldNativeAccess implements WorldNativeAccess<Level
         this.level = level;
         // Use the actual tick as minecraft-defined so we don't try to force blocks into the world when the server's already lagging.
         //  - With the caveat that we don't want to have too many cached changed (1024) so we'd flush those at 1024 anyway.
-        this.lastTick = new AtomicInteger(Bukkit.getServer().getCurrentTick());
+        this.lastTick = new AtomicInteger(FoliaScheduler.isFolia() ? 0 : Bukkit.getServer().getCurrentTick());
     }
 
     private Level getLevel() {
@@ -103,7 +103,6 @@ public class PaperweightFaweWorldNativeAccess implements WorldNativeAccess<Level
             LevelChunk levelChunk, BlockPos blockPos,
             net.minecraft.world.level.block.state.BlockState blockState
     ) {
-        int currentTick = Bukkit.getServer().getCurrentTick();
         if (FoliaScheduler.isFolia()) {
             if (!FoliaScheduler.owns(getLevel().getWorld(), levelChunk.locX, levelChunk.locZ)) {
                 throw new IllegalStateException("Block write attempted outside the owning Folia region");
@@ -111,6 +110,7 @@ public class PaperweightFaweWorldNativeAccess implements WorldNativeAccess<Level
             return levelChunk.setBlockState(blockPos, blockState,
                     this.sideEffectSet.shouldApply(SideEffect.UPDATE) ? 0 : 512);
         }
+        int currentTick = Bukkit.getServer().getCurrentTick();
         if (Fawe.isMainThread()) {
             return levelChunk.setBlockState(blockPos, blockState,
                     this.sideEffectSet.shouldApply(SideEffect.UPDATE) ? 0 : 512
