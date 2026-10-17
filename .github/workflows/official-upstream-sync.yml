@@ -1,0 +1,20 @@
+name: Official upstream sync review
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 3 * * *'
+
+jobs:
+  sync:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: CyoriaSMP-Team/Folia-Ports/.github/workflows/upstream-sync.yml@main
+    with:
+      upstream_repo: IntellectualSites/FastAsyncWorldEdit
+      upstream_branch: main
+      target_branch: folia/1.21.11
+      java_version: '25'
+      build_system: gradle
+      build_command: ./gradlew build
