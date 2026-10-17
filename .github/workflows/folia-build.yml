@@ -1,0 +1,38 @@
+name: Folia 1.21.11 Build (development)
+
+on:
+  push:
+    branches: [folia/1.21.11]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: folia-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+      - name: Compile and test Folia 1.21.11 port
+        run: ./gradlew --no-daemon --max-workers=2 --console=plain '-Dorg.gradle.jvmargs=-Xmx2500m -XX:MaxMetaspaceSize=768m' :worldedit-bukkit:build
+      - name: Upload development build (not a Release)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FAWE-Folia-development-${{ github.run_number }}
+          path: worldedit-bukkit/build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 7
