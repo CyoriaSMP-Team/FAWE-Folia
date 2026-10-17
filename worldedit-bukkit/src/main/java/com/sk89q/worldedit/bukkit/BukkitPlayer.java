@@ -271,7 +271,8 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void print(Component component) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { print(component); return null; });
+            final Component originalComponent = component;
+            FoliaScheduler.callAtEntity(player, () -> { print(originalComponent); return null; });
             return;
         }
         //FAWE start - Add FAWE prefix to all messages

@@ -181,7 +181,7 @@ public class BukkitPlayerBlockBag extends BlockBag implements SlottableBlockBag 
             if (FoliaScheduler.isFolia()) {
                 FoliaScheduler.callAtEntity(player, () -> { flush.run(); return null; });
             } else {
-                TaskManager.taskManager().sync(flush::run);
+                TaskManager.taskManager().sync((java.util.function.Supplier<Void>) () -> { flush.run(); return null; });
             }
             items = null;
         }
