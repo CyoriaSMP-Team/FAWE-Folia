@@ -27,7 +27,7 @@ jobs:
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
       - name: Compile and test Folia 1.21.11 port
-        run: ./gradlew --no-daemon --max-workers=2 --console=plain '-Dorg.gradle.jvmargs=-Xmx2500m -XX:MaxMetaspaceSize=768m' :worldedit-bukkit:build
+        run: ./gradlew --no-daemon --max-workers=2 --console=plain '-Dorg.gradle.jvmargs=-Xmx2500m -XX:MaxMetaspaceSize=768m' :worldedit-bukkit:shadowJar :worldedit-bukkit:test --stacktrace
       - name: Upload development build (not a Release)
         if: success()
         uses: actions/upload-artifact@v4
