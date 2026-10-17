@@ -2,6 +2,7 @@ package com.sk89q.worldedit.bukkit.adapter.impl.fawe.v1_21_11;
 
 import com.fastasyncworldedit.bukkit.adapter.FaweAdapter;
 import com.fastasyncworldedit.bukkit.adapter.NMSRelighterFactory;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.bukkit.util.PaperSupport;
 import com.fastasyncworldedit.core.FaweCache;
 import com.fastasyncworldedit.core.entity.LazyBaseEntity;
@@ -562,6 +563,10 @@ public final class PaperweightFaweAdapter extends FaweAdapter<net.minecraft.nbt.
     }
     @Override
     public boolean generateFeature(ConfiguredFeatureType feature, World world, EditSession editSession, BlockVector3 pt) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(world, pt.x() >> 4, pt.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(world, pt.x() >> 4, pt.z() >> 4,
+                    () -> generateFeature(feature, world, editSession, pt));
+        }
         ServerLevel serverLevel = getServerLevel(world);
         ChunkGenerator generator = serverLevel.getMinecraftWorld().getChunkSource().getGenerator();
 
@@ -571,30 +576,39 @@ public final class PaperweightFaweAdapter extends FaweAdapter<net.minecraft.nbt.
                 .getValue(Identifier.tryParse(feature.id()));
 
         FaweBlockStateListPopulator populator = new FaweBlockStateListPopulator(serverLevel);
-        List<CraftBlockState> placed = TaskManager.taskManager().sync(() -> {
-            preCaptureStates(serverLevel);
-            try {
-                if (!configuredFeature.place(
-                        populator,
-                        generator,
-                        serverLevel.random,
-                        new BlockPos(pt.x(), pt.y(), pt.z())
-                )) {
-                    return null;
+        Supplier<List<CraftBlockState>> capture = () -> {
+            synchronized (serverLevel) {
+                preCaptureStates(serverLevel);
+                try {
+                    if (!configuredFeature.place(
+                            populator,
+                            generator,
+                            serverLevel.random,
+                            new BlockPos(pt.x(), pt.y(), pt.z())
+                    )) {
+                        return null;
+                    }
+                    List<CraftBlockState> placedBlocks = new ArrayList<>(populator.getSnapshotBlocks());
+                    placedBlocks.addAll(serverLevel.capturedBlockStates.values());
+                    return placedBlocks;
+                } finally {
+                    postCaptureBlockStates(serverLevel);
                 }
-                List<CraftBlockState> placedBlocks = new ArrayList<>(populator.getSnapshotBlocks());
-                placedBlocks.addAll(serverLevel.capturedBlockStates.values());
-                return placedBlocks;
-            } finally {
-                postCaptureBlockStates(serverLevel);
             }
-        });
+        };
+        List<CraftBlockState> placed = FoliaScheduler.isFolia()
+                ? capture.get()
+                : TaskManager.taskManager().sync(capture);
 
         return placeFeatureIntoSession(editSession, populator, placed);
     }
 
     @Override
     public boolean generateStructure(StructureType type, World world, EditSession editSession, BlockVector3 pt) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(world, pt.x() >> 4, pt.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(world, pt.x() >> 4, pt.z() >> 4,
+                    () -> generateStructure(type, world, editSession, pt));
+        }
         ServerLevel serverLevel = getServerLevel(world);
         Registry<Structure> structureRegistry = serverLevel.registryAccess().lookupOrThrow(Registries.STRUCTURE);
         Structure structure = structureRegistry.getValue(Identifier.tryParse(type.id()));
@@ -608,56 +622,61 @@ public final class PaperweightFaweAdapter extends FaweAdapter<net.minecraft.nbt.
         TransformerGeneratorAccess access = new TransformerGeneratorAccess();
         FaweBlockStateListPopulator populator = new FaweBlockStateListPopulator(serverLevel);
         access.setDelegate(populator);
-        List<CraftBlockState> placed = TaskManager.taskManager().sync(() -> {
-            preCaptureStates(serverLevel);
-            try {
-                StructureStart structureStart = structure.generate(
-                        structureRegistry.wrapAsHolder(structure),
-                        serverLevel.dimension(),
-                        serverLevel.registryAccess(),
-                        chunkManager.getGenerator(),
-                        chunkManager.getGenerator().getBiomeSource(),
-                        chunkManager.randomState(),
-                        serverLevel.getStructureManager(),
-                        serverLevel.getSeed(),
-                        chunkPos,
-                        0,
-                        populator,
-                        biome -> true
-                );
-                if (!structureStart.isValid()) {
-                    return null;
-                } else {
-                    BoundingBox boundingBox = structureStart.getBoundingBox();
-                    ChunkPos min = new ChunkPos(
-                            SectionPos.blockToSectionCoord(boundingBox.minX()),
-                            SectionPos.blockToSectionCoord(boundingBox.minZ())
-                    );
-                    ChunkPos max = new ChunkPos(
-                            SectionPos.blockToSectionCoord(boundingBox.maxX()),
-                            SectionPos.blockToSectionCoord(boundingBox.maxZ())
-                    );
-                    ChunkPos.rangeClosed(min, max).forEach((chunkPosx) -> structureStart.placeInChunk(
-                            access,
-                            serverLevel.structureManager(),
+        Supplier<List<CraftBlockState>> capture = () -> {
+            synchronized (serverLevel) {
+                preCaptureStates(serverLevel);
+                try {
+                    StructureStart structureStart = structure.generate(
+                            structureRegistry.wrapAsHolder(structure),
+                            serverLevel.dimension(),
+                            serverLevel.registryAccess(),
                             chunkManager.getGenerator(),
-                            serverLevel.getRandom(),
-                            new BoundingBox(
-                                    chunkPosx.getMinBlockX(),
-                                    serverLevel.getMinY(),
-                                    chunkPosx.getMinBlockZ(),
-                                    chunkPosx.getMaxBlockX(),
-                                    serverLevel.getMaxY(), chunkPosx.getMaxBlockZ()
-                            ), chunkPosx
-                    ));
-                    List<CraftBlockState> placedBlocks = new ArrayList<>(populator.getSnapshotBlocks());
-                    placedBlocks.addAll(serverLevel.capturedBlockStates.values());
-                    return placedBlocks;
+                            chunkManager.getGenerator().getBiomeSource(),
+                            chunkManager.randomState(),
+                            serverLevel.getStructureManager(),
+                            serverLevel.getSeed(),
+                            chunkPos,
+                            0,
+                            populator,
+                            biome -> true
+                    );
+                    if (!structureStart.isValid()) {
+                        return null;
+                    } else {
+                        BoundingBox boundingBox = structureStart.getBoundingBox();
+                        ChunkPos min = new ChunkPos(
+                                SectionPos.blockToSectionCoord(boundingBox.minX()),
+                                SectionPos.blockToSectionCoord(boundingBox.minZ())
+                        );
+                        ChunkPos max = new ChunkPos(
+                                SectionPos.blockToSectionCoord(boundingBox.maxX()),
+                                SectionPos.blockToSectionCoord(boundingBox.maxZ())
+                        );
+                        ChunkPos.rangeClosed(min, max).forEach((chunkPosx) -> structureStart.placeInChunk(
+                                access,
+                                serverLevel.structureManager(),
+                                chunkManager.getGenerator(),
+                                serverLevel.getRandom(),
+                                new BoundingBox(
+                                        chunkPosx.getMinBlockX(),
+                                        serverLevel.getMinY(),
+                                        chunkPosx.getMinBlockZ(),
+                                        chunkPosx.getMaxBlockX(),
+                                        serverLevel.getMaxY(), chunkPosx.getMaxBlockZ()
+                                ), chunkPosx
+                        ));
+                        List<CraftBlockState> placedBlocks = new ArrayList<>(populator.getSnapshotBlocks());
+                        placedBlocks.addAll(serverLevel.capturedBlockStates.values());
+                        return placedBlocks;
+                    }
+                } finally {
+                    postCaptureBlockStates(serverLevel);
                 }
-            } finally {
-                postCaptureBlockStates(serverLevel);
             }
-        });
+        };
+        List<CraftBlockState> placed = FoliaScheduler.isFolia()
+                ? capture.get()
+                : TaskManager.taskManager().sync(capture);
 
         return placeFeatureIntoSession(editSession, populator, placed);
     }
@@ -669,6 +688,10 @@ public final class PaperweightFaweAdapter extends FaweAdapter<net.minecraft.nbt.
             final EditSession session,
             final BlockVector3 pt
     ) throws MaxChangedBlocksException {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(world, pt.x() >> 4, pt.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(world, pt.x() >> 4, pt.z() >> 4,
+                    () -> generateTree(treeType, world, session, pt));
+        }
         ServerLevel serverLevel = getServerLevel(world);
         ChunkGenerator generator = serverLevel.getMinecraftWorld().getChunkSource().getGenerator();
 
@@ -678,24 +701,29 @@ public final class PaperweightFaweAdapter extends FaweAdapter<net.minecraft.nbt.
                 .getValue(Identifier.tryParse(treeType.id()));
 
         FaweBlockStateListPopulator populator = new FaweBlockStateListPopulator(serverLevel);
-        List<CraftBlockState> placed = TaskManager.taskManager().sync(() -> {
-            preCaptureStates(serverLevel);
-            try {
-                if (!placedFeature.place(
-                        populator,
-                        generator,
-                        serverLevel.random,
-                        new BlockPos(pt.x(), pt.y(), pt.z())
-                )) {
-                    return null;
+        Supplier<List<CraftBlockState>> capture = () -> {
+            synchronized (serverLevel) {
+                preCaptureStates(serverLevel);
+                try {
+                    if (!placedFeature.place(
+                            populator,
+                            generator,
+                            serverLevel.random,
+                            new BlockPos(pt.x(), pt.y(), pt.z())
+                    )) {
+                        return null;
+                    }
+                    List<CraftBlockState> placedBlocks = new ArrayList<>(populator.getSnapshotBlocks());
+                    placedBlocks.addAll(serverLevel.capturedBlockStates.values());
+                    return placedBlocks;
+                } finally {
+                    postCaptureBlockStates(serverLevel);
                 }
-                List<CraftBlockState> placedBlocks = new ArrayList<>(populator.getSnapshotBlocks());
-                placedBlocks.addAll(serverLevel.capturedBlockStates.values());
-                return placedBlocks;
-            } finally {
-                postCaptureBlockStates(serverLevel);
             }
-        });
+        };
+        List<CraftBlockState> placed = FoliaScheduler.isFolia()
+                ? capture.get()
+                : TaskManager.taskManager().sync(capture);
 
         return placeFeatureIntoSession(session, populator, placed);
     }
@@ -854,7 +882,7 @@ public final class PaperweightFaweAdapter extends FaweAdapter<net.minecraft.nbt.
 
     @Override
     public RelighterFactory getRelighterFactory() {
-        if (PaperSupport.isPaper()) {
+        if (PaperSupport.isPaper() && !FoliaScheduler.isFolia()) {
             return new PaperweightStarlightRelighterFactory();
         } else {
             return new NMSRelighterFactory();

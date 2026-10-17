@@ -20,6 +20,7 @@
 package com.sk89q.worldedit.bukkit;
 
 import com.fastasyncworldedit.bukkit.util.PaperSupport;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.bukkit.util.WorldUnloadedException;
 import com.fastasyncworldedit.core.Fawe;
 import com.fastasyncworldedit.core.FaweCache;
@@ -149,10 +150,17 @@ public class BukkitWorld extends AbstractWorld {
     public List<com.sk89q.worldedit.entity.Entity> getEntities(Region region) {
         World world = getWorld();
 
-        List<Entity> ents = TaskManager.taskManager().sync(world::getEntities);
+        List<Entity> ents = getBukkitEntities(world);
         List<com.sk89q.worldedit.entity.Entity> entities = new ArrayList<>();
         for (Entity ent : ents) {
-            if (region.contains(BukkitAdapter.asBlockVector(ent.getLocation()))) {
+            if (FoliaScheduler.isFolia()) {
+                FoliaScheduler.callAtEntity(ent, () -> {
+                    if (region.contains(BukkitAdapter.asBlockVector(ent.getLocation()))) {
+                        entities.add(BukkitAdapter.adapt(ent));
+                    }
+                    return null;
+                });
+            } else if (region.contains(BukkitAdapter.asBlockVector(ent.getLocation()))) {
                 entities.add(BukkitAdapter.adapt(ent));
             }
         }
@@ -163,9 +171,11 @@ public class BukkitWorld extends AbstractWorld {
     public List<com.sk89q.worldedit.entity.Entity> getEntities() {
         List<com.sk89q.worldedit.entity.Entity> list = new ArrayList<>();
 
-        List<Entity> ents = TaskManager.taskManager().sync(getWorld()::getEntities);
+        List<Entity> ents = getBukkitEntities(getWorld());
         for (Entity entity : ents) {
-            list.add(BukkitAdapter.adapt(entity));
+            list.add(FoliaScheduler.isFolia()
+                    ? FoliaScheduler.callAtEntity(entity, () -> BukkitAdapter.adapt(entity))
+                    : BukkitAdapter.adapt(entity));
         }
         return list;
     }
@@ -173,9 +183,19 @@ public class BukkitWorld extends AbstractWorld {
     @Override
     public int removeEntities(final Region region) {
         List<com.sk89q.worldedit.entity.Entity> entities = getEntities(region);
+        if (FoliaScheduler.isFolia()) {
+            return entities.stream().mapToInt(entity -> entity.remove() ? 1 : 0).sum();
+        }
         return TaskManager.taskManager().sync(() -> entities.stream()
                 .mapToInt(entity -> entity.remove() ? 1 : 0).sum()
         );
+    }
+
+    private List<Entity> getBukkitEntities(World world) {
+        if (FoliaScheduler.isFolia()) {
+            return FoliaScheduler.getLoadedEntities(world);
+        }
+        return TaskManager.taskManager().sync(world::getEntities);
     }
 
     //FAWE: createEntity was moved to IChunkExtent to prevent issues with Async Entity Add.
@@ -189,7 +209,7 @@ public class BukkitWorld extends AbstractWorld {
         //FAWE start
         World tmp = worldRef.get();
         if (tmp == null) {
-            tmp = Bukkit.getWorld(worldNameRef);
+            tmp = lookupWorld();
             if (tmp != null) {
                 worldRef = new WeakReference<>(tmp);
             }
@@ -208,7 +228,7 @@ public class BukkitWorld extends AbstractWorld {
     protected World getWorldChecked() throws WorldEditException {
         World tmp = worldRef.get();
         if (tmp == null) {
-            tmp = Bukkit.getWorld(worldNameRef);
+            tmp = lookupWorld();
             if (tmp != null) {
                 worldRef = new WeakReference<>(tmp);
             }
@@ -217,6 +237,13 @@ public class BukkitWorld extends AbstractWorld {
             throw new WorldUnloadedException(worldNameRef);
         }
         return tmp;
+    }
+
+    private World lookupWorld() {
+        if (FoliaScheduler.isFolia()) {
+            return FoliaScheduler.callGlobal(() -> Bukkit.getWorld(worldNameRef));
+        }
+        return Bukkit.getWorld(worldNameRef);
     }
     //FAWE end
 
@@ -251,6 +278,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public int getBlockLightLevel(BlockVector3 pt) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), pt.x() >> 4, pt.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), pt.x() >> 4, pt.z() >> 4,
+                    () -> getBlockLightLevel(pt));
+        }
         //FAWE start - safe edit region
         testCoords(pt);
         //FAWE end
@@ -276,6 +307,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public boolean clearContainerBlockContents(BlockVector3 pt) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), pt.x() >> 4, pt.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), pt.x() >> 4, pt.z() >> 4,
+                    () -> clearContainerBlockContents(pt));
+        }
         checkNotNull(pt);
         //FAWE start - safe edit region
         testCoords(pt);
@@ -302,14 +337,21 @@ public class BukkitWorld extends AbstractWorld {
             return false;
         }
 
-        TaskManager.taskManager().sync(() -> {
+        Runnable clear = () -> {
             Inventory inven = chest.getInventory();
             if (chest instanceof Chest) {
                 inven = ((Chest) chest).getBlockInventory();
             }
             inven.clear();
-            return null;
-        });
+        };
+        if (FoliaScheduler.isFolia()) {
+            clear.run();
+        } else {
+            TaskManager.taskManager().sync(() -> {
+                clear.run();
+                return null;
+            });
+        }
         return true;
     }
 
@@ -366,6 +408,10 @@ public class BukkitWorld extends AbstractWorld {
     @Deprecated
     @Override
     public boolean generateTree(TreeGenerator.TreeType type, EditSession editSession, BlockVector3 pt) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), pt.x() >> 4, pt.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), pt.x() >> 4, pt.z() >> 4,
+                    () -> generateTree(type, editSession, pt));
+        }
         //FAWE start - allow tree commands to be undone and obey region restrictions
         testCoords(pt);
         return WorldEditPlugin.getInstance().getBukkitImplAdapter().generateTree(type, editSession, pt, getWorld());
@@ -378,6 +424,10 @@ public class BukkitWorld extends AbstractWorld {
             final EditSession editSession,
             final BlockVector3 position
     ) throws MaxChangedBlocksException {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> generateTree(type, editSession, position));
+        }
         BukkitImplAdapter adapter = WorldEditPlugin.getInstance().getBukkitImplAdapter();
         if (adapter != null) {
             return adapter.generateTree(type, getWorld(), editSession, position);
@@ -389,6 +439,15 @@ public class BukkitWorld extends AbstractWorld {
     @Override
     public void dropItem(Vector3 pt, BaseItemStack item) {
         World world = getWorld();
+        int chunkX = ((int) Math.floor(pt.x())) >> 4;
+        int chunkZ = ((int) Math.floor(pt.z())) >> 4;
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(world, chunkX, chunkZ)) {
+            FoliaScheduler.callAtChunk(world, chunkX, chunkZ, () -> {
+                dropItem(pt, item);
+                return null;
+            });
+            return;
+        }
         world.dropItemNaturally(BukkitAdapter.adapt(world, pt), BukkitAdapter.adapt(item));
     }
 
@@ -401,7 +460,12 @@ public class BukkitWorld extends AbstractWorld {
         //FAWE start
         int X = pt.x() >> 4;
         int Z = pt.z() >> 4;
-        if (Fawe.isMainThread()) {
+        if (FoliaScheduler.isFolia()) {
+            FoliaScheduler.callAtChunk(world, X, Z, () -> {
+                world.getChunkAt(X, Z);
+                return null;
+            });
+        } else if (Fawe.isMainThread()) {
             world.getChunkAt(X, Z);
         } else if (PaperSupport.isPaper()) {
             world.getChunkAtAsync(X, Z, true);
@@ -449,7 +513,14 @@ public class BukkitWorld extends AbstractWorld {
     public void fixAfterFastMode(Iterable<BlockVector2> chunks) {
         World world = getWorld();
         for (BlockVector2 chunkPos : chunks) {
-            world.refreshChunk(chunkPos.x(), chunkPos.z());
+            if (FoliaScheduler.isFolia()) {
+                FoliaScheduler.callAtChunk(world, chunkPos.x(), chunkPos.z(), () -> {
+                    world.refreshChunk(chunkPos.x(), chunkPos.z());
+                    return null;
+                });
+            } else {
+                world.refreshChunk(chunkPos.x(), chunkPos.z());
+            }
         }
     }
 
@@ -457,6 +528,11 @@ public class BukkitWorld extends AbstractWorld {
     @Override
     public boolean playEffect(Vector3 position, int type, int data) {
         World world = getWorld();
+        int chunkX = ((int) Math.floor(position.x())) >> 4;
+        int chunkZ = ((int) Math.floor(position.z())) >> 4;
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(world, chunkX, chunkZ)) {
+            return FoliaScheduler.callAtChunk(world, chunkX, chunkZ, () -> playEffect(position, type, data));
+        }
 
         final Effect effect = effects.get(type);
         if (effect == null) {
@@ -472,6 +548,12 @@ public class BukkitWorld extends AbstractWorld {
     @Override
     public boolean playBlockBreakEffect(Vector3 position, BlockType type) {
         World world = getWorld();
+        int chunkX = ((int) Math.floor(position.x())) >> 4;
+        int chunkZ = ((int) Math.floor(position.z())) >> 4;
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(world, chunkX, chunkZ)) {
+            return FoliaScheduler.callAtChunk(world, chunkX, chunkZ,
+                    () -> playBlockBreakEffect(position, type));
+        }
         world.playEffect(BukkitAdapter.adapt(world, position), Effect.STEP_SOUND, BukkitAdapter.adapt(type));
         return true;
     }
@@ -479,6 +561,9 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public WeatherType getWeather() {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.isGlobalThread()) {
+            return FoliaScheduler.callGlobal(this::getWeather);
+        }
         if (getWorld().isThundering()) {
             return WeatherTypes.THUNDER_STORM;
         } else if (getWorld().hasStorm()) {
@@ -490,11 +575,18 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public long getRemainingWeatherDuration() {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.isGlobalThread()) {
+            return FoliaScheduler.callGlobal(this::getRemainingWeatherDuration);
+        }
         return getWorld().getWeatherDuration();
     }
 
     @Override
     public void setWeather(WeatherType weatherType) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.isGlobalThread()) {
+            FoliaScheduler.callGlobal(() -> { setWeather(weatherType); return null; });
+            return;
+        }
         if (weatherType == WeatherTypes.THUNDER_STORM) {
             getWorld().setThundering(true);
         } else if (weatherType == WeatherTypes.RAIN) {
@@ -507,6 +599,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public void setWeather(WeatherType weatherType, long duration) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.isGlobalThread()) {
+            FoliaScheduler.callGlobal(() -> { setWeather(weatherType, duration); return null; });
+            return;
+        }
         // Who named these methods...
         if (weatherType == WeatherTypes.THUNDER_STORM) {
             getWorld().setThundering(true);
@@ -524,11 +620,21 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public BlockVector3 getSpawnPosition() {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.isGlobalThread()) {
+            return FoliaScheduler.callGlobal(this::getSpawnPosition);
+        }
         return BukkitAdapter.asBlockVector(getWorld().getSpawnLocation());
     }
 
     @Override
     public void simulateBlockMine(BlockVector3 pt) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), pt.x() >> 4, pt.z() >> 4)) {
+            FoliaScheduler.callAtChunk(getWorld(), pt.x() >> 4, pt.z() >> 4, () -> {
+                simulateBlockMine(pt);
+                return null;
+            });
+            return;
+        }
         //FAWE start - safe edit region
         testCoords(pt);
         //FAWE end
@@ -538,6 +644,10 @@ public class BukkitWorld extends AbstractWorld {
     //FAWE start
     @Override
     public Collection<BaseItemStack> getBlockDrops(BlockVector3 position) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> getBlockDrops(position));
+        }
         return getWorld().getBlockAt(position.x(), position.y(), position.z()).getDrops().stream()
                 .map(BukkitAdapter::adapt).collect(Collectors.toList());
     }
@@ -545,6 +655,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public boolean canPlaceAt(BlockVector3 position, com.sk89q.worldedit.world.block.BlockState blockState) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> canPlaceAt(position, blockState));
+        }
         //FAWE start - safe edit region
         testCoords(position);
         //FAWE end
@@ -558,6 +672,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public boolean generateFeature(ConfiguredFeatureType type, EditSession editSession, BlockVector3 position) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> generateFeature(type, editSession, position));
+        }
         BukkitImplAdapter adapter = WorldEditPlugin.getInstance().getBukkitImplAdapter();
         if (adapter != null) {
             return adapter.generateFeature(type, getWorld(), editSession, position);
@@ -568,6 +686,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public boolean generateStructure(StructureType type, EditSession editSession, BlockVector3 position) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> generateStructure(type, editSession, position));
+        }
         BukkitImplAdapter adapter = WorldEditPlugin.getInstance().getBukkitImplAdapter();
         if (adapter != null) {
             return adapter.generateStructure(type, getWorld(), editSession, position);
@@ -580,6 +702,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public com.sk89q.worldedit.world.block.BlockState getBlock(BlockVector3 position) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> getBlock(position));
+        }
         //FAWE start - safe edit region
         testCoords(position);
         //FAWE end
@@ -604,6 +730,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public <B extends BlockStateHolder<B>> boolean setBlock(BlockVector3 position, B block, SideEffectSet sideEffects) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> setBlock(position, block, sideEffects));
+        }
         //FAWE start - safe edit region
         testCoords(position);
         //FAWE end
@@ -628,6 +758,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public BaseBlock getFullBlock(BlockVector3 position) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> getFullBlock(position));
+        }
         //FAWE start - safe edit region
         testCoords(position);
         //FAWE end
@@ -655,6 +789,10 @@ public class BukkitWorld extends AbstractWorld {
             BlockVector3 position, com.sk89q.worldedit.world.block.BlockState previousType,
             SideEffectSet sideEffectSet
     ) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> applySideEffects(position, previousType, sideEffectSet));
+        }
         //FAWE start - safe edit region
         testCoords(position);
         //FAWE end
@@ -671,6 +809,10 @@ public class BukkitWorld extends AbstractWorld {
 
     @Override
     public boolean useItem(BlockVector3 position, BaseItem item, Direction face) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> useItem(position, item, face));
+        }
         //FAWE start - safe edit region
         testCoords(position);
         //FAWE end
@@ -685,6 +827,10 @@ public class BukkitWorld extends AbstractWorld {
     @SuppressWarnings("deprecation")
     @Override
     public BiomeType getBiome(BlockVector3 position) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> getBiome(position));
+        }
         //FAWE start - safe edit region
         testCoords(position);
         //FAWE end
@@ -698,6 +844,10 @@ public class BukkitWorld extends AbstractWorld {
     @SuppressWarnings("deprecation")
     @Override
     public boolean setBiome(BlockVector3 position, BiomeType biome) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(getWorld(), position.x() >> 4, position.z() >> 4)) {
+            return FoliaScheduler.callAtChunk(getWorld(), position.x() >> 4, position.z() >> 4,
+                    () -> setBiome(position, biome));
+        }
         //FAWE start - safe edit region
         testCoords(position);
         //FAWE end
@@ -730,7 +880,14 @@ public class BukkitWorld extends AbstractWorld {
     @Override
     public void refreshChunk(int chunkX, int chunkZ) {
         testCoords(BlockVector3.at(chunkX << 4, 0, chunkZ << 4));
-        getWorld().refreshChunk(chunkX, chunkZ);
+        if (FoliaScheduler.isFolia()) {
+            FoliaScheduler.callAtChunk(getWorld(), chunkX, chunkZ, () -> {
+                getWorld().refreshChunk(chunkX, chunkZ);
+                return null;
+            });
+        } else {
+            getWorld().refreshChunk(chunkX, chunkZ);
+        }
     }
 
     @Override

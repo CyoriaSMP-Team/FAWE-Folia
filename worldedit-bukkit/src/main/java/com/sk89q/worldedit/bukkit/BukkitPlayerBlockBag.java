@@ -21,6 +21,7 @@ package com.sk89q.worldedit.bukkit;
 
 import com.fastasyncworldedit.core.extent.inventory.SlottableBlockBag;
 import com.fastasyncworldedit.core.util.TaskManager;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.sk89q.worldedit.blocks.BaseItem;
 import com.sk89q.worldedit.blocks.BaseItemStack;
 import com.sk89q.worldedit.extent.inventory.BlockBag;
@@ -53,7 +54,9 @@ public class BukkitPlayerBlockBag extends BlockBag implements SlottableBlockBag 
      */
     private void loadInventory() {
         if (items == null) {
-            items = player.getInventory().getContents();
+            items = FoliaScheduler.isFolia()
+                    ? FoliaScheduler.callAtEntity(player, () -> player.getInventory().getContents())
+                    : player.getInventory().getContents();
         }
     }
 
@@ -172,10 +175,14 @@ public class BukkitPlayerBlockBag extends BlockBag implements SlottableBlockBag 
     @Override
     public void flushChanges() {
         if (items != null) {
-            TaskManager.taskManager().sync(() -> {
+            Runnable flush = () -> {
                 player.getInventory().setContents(items);
-                return null;
-            });
+            };
+            if (FoliaScheduler.isFolia()) {
+                FoliaScheduler.callAtEntity(player, () -> { flush.run(); return null; });
+            } else {
+                TaskManager.taskManager().sync(flush::run);
+            }
             items = null;
         }
     }

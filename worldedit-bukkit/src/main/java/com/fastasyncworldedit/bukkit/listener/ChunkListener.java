@@ -1,6 +1,7 @@
 package com.fastasyncworldedit.bukkit.listener;
 
 import com.fastasyncworldedit.bukkit.FaweBukkit;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.core.Fawe;
 import com.fastasyncworldedit.core.configuration.Settings;
 import com.fastasyncworldedit.core.util.FaweTimer;
@@ -136,7 +137,14 @@ public abstract class ChunkListener implements Listener {
     public void cleanup(Chunk chunk) {
         for (Entity entity : chunk.getEntities()) {
             if (entity.getType() == EntityType.ITEM) {
-                entity.remove();
+                if (FoliaScheduler.isFolia()) {
+                    FoliaScheduler.callAtEntity(entity, () -> {
+                        entity.remove();
+                        return null;
+                    });
+                } else {
+                    entity.remove();
+                }
             }
         }
 
