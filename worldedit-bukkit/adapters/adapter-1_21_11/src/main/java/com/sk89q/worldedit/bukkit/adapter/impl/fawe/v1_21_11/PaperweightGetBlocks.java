@@ -914,8 +914,9 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
     @SuppressWarnings("unchecked")
     public char[] update(int layer, char[] data, boolean aggressive) {
         if (needsRegion()) {
+            final char[] requestedData = data;
             return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
-                    () -> update(layer, data, aggressive));
+                    () -> update(layer, requestedData, aggressive));
         }
         LevelChunkSection section = getSections(aggressive)[layer];
         // Section is null, return empty array
@@ -993,8 +994,9 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     public LevelChunkSection[] getSections(boolean force) {
         if (needsRegion()) {
+            final boolean requestedForce = force;
             return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
-                    () -> getSections(force));
+                    () -> getSections(requestedForce));
         }
         force &= forceLoadSections;
         LevelChunkSection[] tmp = sections;
@@ -1108,8 +1110,9 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
     @Override
     public boolean hasSection(int layer) {
         if (needsRegion()) {
+            final int requestedLayer = layer;
             return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
-                    () -> hasSection(layer));
+                    () -> hasSection(requestedLayer));
         }
         layer -= getMinSectionPosition();
         return getSections(false)[layer] != null;
@@ -1118,8 +1121,9 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
     @Override
     public boolean hasNonEmptySection(int layer) {
         if (needsRegion()) {
+            final int requestedLayer = layer;
             return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
-                    () -> hasNonEmptySection(layer));
+                    () -> hasNonEmptySection(requestedLayer));
         }
         layer -= getMinSectionPosition();
         LevelChunkSection section = getSections(false)[layer];
