@@ -160,19 +160,16 @@ public final class FoliaScheduler {
         }
         CompletableFuture<T> result = new CompletableFuture<>();
         Object scheduler = scheduler("getRegionScheduler");
-        // RegionScheduler.execute queues the operation directly for the owning
-        // region. Using run() delayed completion until a region tick and could
-        // leave FAWE's asynchronous relighter waiting on a future indefinitely.
-        Method execute = method(
+        Method run = method(
                 schedulerType("getRegionScheduler"),
-                "execute",
+                "run",
                 Plugin.class,
                 World.class,
                 int.class,
                 int.class,
-                Runnable.class
+                Consumer.class
         );
-        invoke(execute, scheduler, WorldEditPlugin.getInstance(), world, chunkX, chunkZ, (Runnable) () -> {
+        invoke(run, scheduler, WorldEditPlugin.getInstance(), world, chunkX, chunkZ, (Consumer<Object>) ignored -> {
             try {
                 result.complete(action.get());
             } catch (Throwable throwable) {
