@@ -112,14 +112,14 @@ public class BukkitPlayer extends AbstractPlayerActor {
         //FAWE start
         if (player != null && Settings.settings().CLIPBOARD.USE_DISK) {
             BukkitPlayer cached = WorldEditPlugin.getInstance().getCachedPlayer(player);
-            if (cached == null) {
-                // PlayerJoinEvent runs on a Folia region thread. Loading clipboard
-                // data must never block that region while waiting for FAWE's queue.
-                if (FoliaScheduler.isFolia()) {
-                    loadClipboardFromDiskNonBlocking();
-                } else {
-                    loadClipboardFromDisk();
-                }
+            // Folia: do not automatically restore persisted clipboards while
+            // wrapping a Bukkit Player. This constructor can also run in Paper's
+            // asynchronous command tree builder, where FAWE clipboard loading
+            // calls entity-bound methods and can deadlock SessionManager against
+            // the player's region thread. Fresh copy/paste remains available.
+            // Retain legacy clipboard restore on traditional Paper.
+            if (cached == null && !FoliaScheduler.isFolia()) {
+                loadClipboardFromDisk();
             }
         }
         //FAWE end
