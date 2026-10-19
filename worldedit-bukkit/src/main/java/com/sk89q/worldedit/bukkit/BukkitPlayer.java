@@ -137,9 +137,8 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public UUID getUniqueId() {
-        if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, this::getUniqueId);
-        }
+        // Immutable player identity: safe during Folia join/quit, even before
+        // the entity scheduler starts or after it retires.
         return player.getUniqueId();
     }
 
@@ -167,9 +166,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public String getName() {
-        if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, this::getName);
-        }
+        // Player name is stable and does not require entity scheduling.
         return player.getName();
     }
 
@@ -417,9 +414,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     }
 
     public Player getPlayer() {
-        if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, this::getPlayer);
-        }
+        // Exposing the stored reference is not a Bukkit entity operation.
         return player;
     }
 
@@ -501,9 +496,8 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public SessionKey getSessionKey() {
-        if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, this::getSessionKey);
-        }
+        // SessionKeyImpl captures only the UUID and immutable player name.
+        // Avoid scheduling against unspawned or retired Folia entities.
         return new SessionKeyImpl(this.player);
     }
 
