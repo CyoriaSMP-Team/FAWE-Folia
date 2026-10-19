@@ -113,7 +113,13 @@ public class BukkitPlayer extends AbstractPlayerActor {
         if (player != null && Settings.settings().CLIPBOARD.USE_DISK) {
             BukkitPlayer cached = WorldEditPlugin.getInstance().getCachedPlayer(player);
             if (cached == null) {
-                loadClipboardFromDisk();
+                // PlayerJoinEvent runs on a Folia region thread. Loading clipboard
+                // data must never block that region while waiting for FAWE's queue.
+                if (FoliaScheduler.isFolia()) {
+                    loadClipboardFromDiskNonBlocking();
+                } else {
+                    loadClipboardFromDisk();
+                }
             }
         }
         //FAWE end
