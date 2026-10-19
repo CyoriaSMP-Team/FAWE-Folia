@@ -1,0 +1,66 @@
+name: Cyoria Folia Auto Release
+
+on:
+  push:
+    branches:
+      - 'main'
+    paths-ignore:
+      - '**/*.md'
+      - '.github/workflows/official-upstream-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cyoria-folia-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build --no-daemon
+      - name: Collect distributable JARs
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find . -type f \( -path '*/build/libs/*.jar' -o -path './target/*.jar' -o -path '*/target/*.jar' \) \
+            ! -iname '*-sources.jar' ! -iname '*-javadoc.jar' \
+            ! -iname '*-tests.jar' ! -iname '*-test.jar' \
+            ! -iname '*-plain.jar' ! -iname '*-api.jar' \
+            ! -path '*/.gradle/*' -print0 |
+          while IFS= read -r -d '' file; do
+            base="$(basename "$file")"
+            if [[ -e "release-assets/$base" ]]; then
+              base="$(echo "$file" | sed 's@^./@@; s@/@-@g')"
+            fi
+            cp "$file" "release-assets/$base"
+          done
+          test "$(find release-assets -name '*.jar' | wc -l)" -gt 0
+          ls -lah release-assets
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short_sha="${GITHUB_SHA:0:12}"
+          tag="cyoria-folia-${GITHUB_RUN_NUMBER}-${short_sha}"
+          gh release create "$tag" release-assets/*.jar \
+            --target "$GITHUB_SHA" \
+            --title "FAWE-Folia build ${GITHUB_RUN_NUMBER}" \
+            --notes "Automated CyoriaSMP Folia development build from commit ${GITHUB_SHA}. Compatibility with Folia must be verified before production deployment." \
+            --prerelease
