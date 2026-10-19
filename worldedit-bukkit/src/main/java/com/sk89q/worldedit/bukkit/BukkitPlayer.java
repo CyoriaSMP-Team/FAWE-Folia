@@ -227,7 +227,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void printRaw(String msg) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { printRaw(msg); return null; });
+            FoliaScheduler.runAtEntity(player, () -> printRaw(msg));
             return;
         }
         for (String part : msg.split("\n")) {
@@ -239,7 +239,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void print(String msg) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { print(msg); return null; });
+            FoliaScheduler.runAtEntity(player, () -> print(msg));
             return;
         }
         for (String part : msg.split("\n")) {
@@ -251,7 +251,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void printDebug(String msg) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { printDebug(msg); return null; });
+            FoliaScheduler.runAtEntity(player, () -> printDebug(msg));
             return;
         }
         for (String part : msg.split("\n")) {
@@ -263,7 +263,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void printError(String msg) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { printError(msg); return null; });
+            FoliaScheduler.runAtEntity(player, () -> printError(msg));
             return;
         }
         for (String part : msg.split("\n")) {
@@ -275,7 +275,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     public void print(Component component) {
         if (needsEntityRegion()) {
             final Component originalComponent = component;
-            FoliaScheduler.callAtEntity(player, () -> { print(originalComponent); return null; });
+            FoliaScheduler.runAtEntity(player, () -> print(originalComponent));
             return;
         }
         //FAWE start - Add FAWE prefix to all messages
