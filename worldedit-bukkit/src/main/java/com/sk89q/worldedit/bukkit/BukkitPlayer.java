@@ -22,6 +22,7 @@ package com.sk89q.worldedit.bukkit;
 import com.fastasyncworldedit.core.configuration.Caption;
 import com.fastasyncworldedit.core.configuration.Settings;
 import com.fastasyncworldedit.core.util.TaskManager;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.sk89q.util.StringUtil;
 import com.sk89q.wepif.VaultResolver;
 import com.sk89q.worldedit.WorldEdit;
@@ -130,11 +131,17 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public UUID getUniqueId() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getUniqueId);
+        }
         return player.getUniqueId();
     }
 
     @Override
     public BaseItemStack getItemInHand(HandSide handSide) {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, () -> getItemInHand(handSide));
+        }
         ItemStack itemStack = handSide == HandSide.MAIN_HAND
                 ? player.getInventory().getItemInMainHand()
                 : player.getInventory().getItemInOffHand();
@@ -143,6 +150,9 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public BaseBlock getBlockInHand(HandSide handSide) throws WorldEditException {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, () -> getBlockInHand(handSide));
+        }
         ItemStack itemStack = handSide == HandSide.MAIN_HAND
                 ? player.getInventory().getItemInMainHand()
                 : player.getInventory().getItemInOffHand();
@@ -151,20 +161,33 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public String getName() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getName);
+        }
         return player.getName();
     }
 
     @Override
     public String getDisplayName() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getDisplayName);
+        }
         return player.getDisplayName();
     }
 
     //FAWE start
     @Override
     public void giveItem(BaseItemStack itemStack) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> {
+                giveItem(itemStack);
+                return null;
+            });
+            return;
+        }
         final PlayerInventory inv = player.getInventory();
         ItemStack newItem = BukkitAdapter.adapt(itemStack);
-        TaskManager.taskManager().sync(() -> {
+        Runnable updateInventory = () -> {
             if (itemStack.getType().id().equalsIgnoreCase(WorldEdit.getInstance().getConfiguration().wandItem)) {
                 inv.remove(newItem);
             }
@@ -185,14 +208,25 @@ public class BukkitPlayer extends AbstractPlayerActor {
                 }
             }
             player.updateInventory();
-            return null;
-        });
+        };
+        if (FoliaScheduler.isFolia()) {
+            updateInventory.run();
+        } else {
+            TaskManager.taskManager().sync(() -> {
+                updateInventory.run();
+                return null;
+            });
+        }
     }
     //FAWE end
 
     @Deprecated
     @Override
     public void printRaw(String msg) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { printRaw(msg); return null; });
+            return;
+        }
         for (String part : msg.split("\n")) {
             player.sendMessage(part);
         }
@@ -201,6 +235,10 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Deprecated
     @Override
     public void print(String msg) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { print(msg); return null; });
+            return;
+        }
         for (String part : msg.split("\n")) {
             player.sendMessage("§d" + part);
         }
@@ -209,6 +247,10 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Deprecated
     @Override
     public void printDebug(String msg) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { printDebug(msg); return null; });
+            return;
+        }
         for (String part : msg.split("\n")) {
             player.sendMessage("§7" + part);
         }
@@ -217,6 +259,10 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Deprecated
     @Override
     public void printError(String msg) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { printError(msg); return null; });
+            return;
+        }
         for (String part : msg.split("\n")) {
             player.sendMessage("§c" + part);
         }
@@ -224,6 +270,11 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public void print(Component component) {
+        if (needsEntityRegion()) {
+            final Component originalComponent = component;
+            FoliaScheduler.callAtEntity(player, () -> { print(originalComponent); return null; });
+            return;
+        }
         //FAWE start - Add FAWE prefix to all messages
         component = Caption.color(TranslatableComponent.of("prefix", component), getLocale());
         //FAWE end
@@ -232,6 +283,9 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public boolean trySetPosition(Vector3 pos, float pitch, float yaw) {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, () -> trySetPosition(pos, pitch, yaw));
+        }
         //FAWE start
         org.bukkit.World world = player.getWorld();
         if (pos instanceof com.sk89q.worldedit.util.Location) {
@@ -243,18 +297,22 @@ public class BukkitPlayer extends AbstractPlayerActor {
         }
         org.bukkit.World finalWorld = world;
         //FAWE end
-        return TaskManager.taskManager().sync(() -> player.teleport(new Location(
+        java.util.function.Supplier<Boolean> teleport = () -> player.teleport(new Location(
                 finalWorld,
                 pos.x(),
                 pos.y(),
                 pos.z(),
                 yaw,
                 pitch
-        )));
+        ));
+        return FoliaScheduler.isFolia() ? teleport.get() : TaskManager.taskManager().sync(teleport);
     }
 
     @Override
     public String[] getGroups() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getGroups);
+        }
         return plugin.getPermissionsResolver().getGroups(player);
     }
 
@@ -265,16 +323,26 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public GameMode getGameMode() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getGameMode);
+        }
         return GameModes.get(player.getGameMode().name().toLowerCase(Locale.ROOT));
     }
 
     @Override
     public void setGameMode(GameMode gameMode) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { setGameMode(gameMode); return null; });
+            return;
+        }
         player.setGameMode(org.bukkit.GameMode.valueOf(gameMode.id().toUpperCase(Locale.ROOT)));
     }
 
     @Override
     public boolean hasPermission(String perm) {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, () -> hasPermission(perm));
+        }
         return (!plugin.getLocalConfiguration().noOpPermissions && player.isOp())
                 || plugin.getPermissionsResolver().hasPermission(
                 player.getWorld().getName(), player, perm);
@@ -283,6 +351,10 @@ public class BukkitPlayer extends AbstractPlayerActor {
     //FAWE start
     @Override
     public void setPermission(String permission, boolean value) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { setPermission(permission, value); return null; });
+            return;
+        }
         /*
          *  Permissions are used to managing WorldEdit region restrictions
          *   - The `/wea` command will give/remove the required bypass permission
@@ -318,11 +390,18 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public World getWorld() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getWorld);
+        }
         return BukkitAdapter.adapt(player.getWorld());
     }
 
     @Override
     public void dispatchCUIEvent(CUIEvent event) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { dispatchCUIEvent(event); return null; });
+            return;
+        }
         String[] params = event.getParameters();
         String send = event.getTypeId();
         if (params.length > 0) {
@@ -332,16 +411,26 @@ public class BukkitPlayer extends AbstractPlayerActor {
     }
 
     public Player getPlayer() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getPlayer);
+        }
         return player;
     }
 
     @Override
     public boolean isAllowedToFly() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::isAllowedToFly);
+        }
         return player.getAllowFlight();
     }
 
     @Override
     public void setFlying(boolean flying) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { setFlying(flying); return null; });
+            return;
+        }
         player.setFlying(flying);
     }
 
@@ -352,6 +441,9 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public com.sk89q.worldedit.util.Location getLocation() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getLocation);
+        }
         Location nativeLocation = player.getLocation();
         Vector3 position = BukkitAdapter.asVector(nativeLocation);
         return new com.sk89q.worldedit.util.Location(
@@ -364,16 +456,26 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public boolean setLocation(com.sk89q.worldedit.util.Location location) {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, () -> setLocation(location));
+        }
         return player.teleport(BukkitAdapter.adapt(location));
     }
 
     @Override
     public Locale getLocale() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getLocale);
+        }
         return TextUtils.getLocaleByMinecraftTag(player.getLocale());
     }
 
     @Override
     public void sendAnnouncements() {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { sendAnnouncements(); return null; });
+            return;
+        }
         if (!WorldEditPlugin.getInstance().getLifecycledBukkitImplAdapter().isValid()) {
             //FAWE start - swap out EH download url with ours
             print(Caption.of(
@@ -393,6 +495,9 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public SessionKey getSessionKey() {
+        if (needsEntityRegion()) {
+            return FoliaScheduler.callAtEntity(player, this::getSessionKey);
+        }
         return new SessionKeyImpl(this.player);
     }
 
@@ -436,6 +541,10 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public <B extends BlockStateHolder<B>> void sendFakeBlock(BlockVector3 pos, @Nullable B block) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { sendFakeBlock(pos, block); return null; });
+            return;
+        }
         Location loc = new Location(player.getWorld(), pos.x(), pos.y(), pos.z());
 
         BaseBlock baseBlock;
@@ -462,6 +571,10 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public void sendFakeOP() {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { sendFakeOP(); return null; });
+            return;
+        }
         BukkitImplAdapter adapter = WorldEditPlugin.getInstance().getBukkitImplAdapter();
         if (adapter != null) {
             adapter.sendFakeOP(player);
@@ -471,6 +584,10 @@ public class BukkitPlayer extends AbstractPlayerActor {
     //FAWE start
     @Override
     public void sendTitle(Component title, Component sub) {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { sendTitle(title, sub); return null; });
+            return;
+        }
         String titleStr = WorldEditText.reduceToText(title, getLocale());
         String subStr = WorldEditText.reduceToText(sub, getLocale());
         player.sendTitle(titleStr, subStr, 0, 70, 20);
@@ -478,9 +595,17 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public void unregister() {
+        if (needsEntityRegion()) {
+            FoliaScheduler.callAtEntity(player, () -> { unregister(); return null; });
+            return;
+        }
         player.removeMetadata("WE", WorldEditPlugin.getInstance());
         plugin.getPermissionAttachmentManager().removeAttachment(player);
         super.unregister();
+    }
+
+    private boolean needsEntityRegion() {
+        return player != null && FoliaScheduler.isFolia() && !FoliaScheduler.owns(player);
     }
     //FAWE end
 }

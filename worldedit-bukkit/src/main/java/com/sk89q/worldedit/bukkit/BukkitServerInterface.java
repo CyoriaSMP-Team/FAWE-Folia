@@ -135,6 +135,9 @@ public class BukkitServerInterface extends AbstractPlatform implements MultiUser
 
     @Override
     public int schedule(long delay, long period, Runnable task) {
+        if (com.fastasyncworldedit.bukkit.util.FoliaScheduler.isFolia()) {
+            return com.fastasyncworldedit.core.util.TaskManager.taskManager().schedule(task, delay, period);
+        }
         return Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, task, delay, period);
     }
 
@@ -265,7 +268,7 @@ public class BukkitServerInterface extends AbstractPlatform implements MultiUser
 
     @Override
     public long getTickCount() {
-        if (PaperSupport.isPaper()) {
+        if (PaperSupport.isPaper() && !PaperSupport.isFolia()) {
             return Bukkit.getCurrentTick();
         }
         return super.getTickCount();

@@ -4,6 +4,7 @@ import com.fastasyncworldedit.core.Fawe;
 import com.fastasyncworldedit.core.math.IntPair;
 import com.fastasyncworldedit.core.util.TaskManager;
 import com.fastasyncworldedit.core.util.task.RunnableVal;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldedit.internal.block.BlockStateIdAccess;
 import com.sk89q.worldedit.internal.wna.WorldNativeAccess;
@@ -13,7 +14,6 @@ import com.sk89q.worldedit.world.block.BlockState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.FullChunkStatus;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.world.level.Level;
@@ -22,6 +22,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.redstone.ExperimentalRedstoneUtils;
 import net.minecraft.world.level.storage.ValueInput;
+import org.bukkit.Bukkit;
 import org.bukkit.craftbukkit.CraftWorld;
 import org.bukkit.craftbukkit.block.data.CraftBlockData;
 import org.bukkit.event.block.BlockPhysicsEvent;
@@ -31,6 +32,10 @@ import javax.annotation.Nullable;
 import java.lang.ref.WeakReference;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -62,7 +67,7 @@ public class PaperweightFaweWorldNativeAccess implements WorldNativeAccess<Level
         this.level = level;
         // Use the actual tick as minecraft-defined so we don't try to force blocks into the world when the server's already lagging.
         //  - With the caveat that we don't want to have too many cached changed (1024) so we'd flush those at 1024 anyway.
-        this.lastTick = new AtomicInteger(MinecraftServer.currentTick);
+        this.lastTick = new AtomicInteger(FoliaScheduler.isFolia() ? 0 : Bukkit.getServer().getCurrentTick());
     }
 
     private Level getLevel() {
@@ -98,7 +103,14 @@ public class PaperweightFaweWorldNativeAccess implements WorldNativeAccess<Level
             LevelChunk levelChunk, BlockPos blockPos,
             net.minecraft.world.level.block.state.BlockState blockState
     ) {
-        int currentTick = MinecraftServer.currentTick;
+        if (FoliaScheduler.isFolia()) {
+            if (!FoliaScheduler.owns(getLevel().getWorld(), levelChunk.locX, levelChunk.locZ)) {
+                throw new IllegalStateException("Block write attempted outside the owning Folia region");
+            }
+            return levelChunk.setBlockState(blockPos, blockState,
+                    this.sideEffectSet.shouldApply(SideEffect.UPDATE) ? 0 : 512);
+        }
+        int currentTick = Bukkit.getServer().getCurrentTick();
         if (Fawe.isMainThread()) {
             return levelChunk.setBlockState(blockPos, blockState,
                     this.sideEffectSet.shouldApply(SideEffect.UPDATE) ? 0 : 512
@@ -247,6 +259,32 @@ public class PaperweightFaweWorldNativeAccess implements WorldNativeAccess<Level
         } else {
             toSend = Collections.emptySet();
         }
+        if (FoliaScheduler.isFolia()) {
+            Map<IntPair, List<CachedChange>> changesByChunk = new HashMap<>();
+            for (CachedChange change : changes) {
+                changesByChunk.computeIfAbsent(
+                        new IntPair(change.levelChunk.locX, change.levelChunk.locZ), ignored -> new ArrayList<>()
+                ).add(change);
+            }
+            for (IntPair chunk : toSend) {
+                changesByChunk.computeIfAbsent(chunk, ignored -> new ArrayList<>());
+            }
+            for (Map.Entry<IntPair, List<CachedChange>> entry : changesByChunk.entrySet()) {
+                IntPair chunk = entry.getKey();
+                List<CachedChange> chunkChanges = List.copyOf(entry.getValue());
+                boolean send = toSend.contains(chunk);
+                FoliaScheduler.runAtChunk(getLevel().getWorld(), chunk.x(), chunk.z(), () -> {
+                    for (CachedChange change : chunkChanges) {
+                        change.levelChunk.setBlockState(change.blockPos, change.blockState,
+                                sideEffectSet.shouldApply(SideEffect.UPDATE) ? 0 : 512);
+                    }
+                    if (send) {
+                        PaperweightPlatformAdapter.sendChunk(chunk, getLevel().getWorld().getHandle(), chunk.x(), chunk.z());
+                    }
+                });
+            }
+            return;
+        }
         RunnableVal<Object> runnableVal = new RunnableVal<>() {
             @Override
             public void run(Object value) {
@@ -266,6 +304,35 @@ public class PaperweightFaweWorldNativeAccess implements WorldNativeAccess<Level
 
     @Override
     public synchronized void flush() {
+        if (FoliaScheduler.isFolia()) {
+            Map<IntPair, List<CachedChange>> changesByChunk = new HashMap<>();
+            for (CachedChange change : cachedChanges) {
+                changesByChunk.computeIfAbsent(
+                        new IntPair(change.levelChunk.locX, change.levelChunk.locZ), ignored -> new ArrayList<>()
+                ).add(change);
+            }
+            for (IntPair chunk : cachedChunksToSend) {
+                changesByChunk.computeIfAbsent(chunk, ignored -> new ArrayList<>());
+            }
+            for (Map.Entry<IntPair, List<CachedChange>> entry : changesByChunk.entrySet()) {
+                IntPair chunk = entry.getKey();
+                List<CachedChange> chunkChanges = List.copyOf(entry.getValue());
+                boolean send = cachedChunksToSend.contains(chunk);
+                FoliaScheduler.callAtChunk(getLevel().getWorld(), chunk.x(), chunk.z(), () -> {
+                    for (CachedChange change : chunkChanges) {
+                        change.levelChunk.setBlockState(change.blockPos, change.blockState,
+                                sideEffectSet.shouldApply(SideEffect.UPDATE) ? 0 : 512);
+                    }
+                    if (send) {
+                        PaperweightPlatformAdapter.sendChunk(chunk, getLevel().getWorld().getHandle(), chunk.x(), chunk.z());
+                    }
+                    return null;
+                });
+            }
+            cachedChanges.clear();
+            cachedChunksToSend.clear();
+            return;
+        }
         RunnableVal<Object> runnableVal = new RunnableVal<>() {
             @Override
             public void run(Object value) {
