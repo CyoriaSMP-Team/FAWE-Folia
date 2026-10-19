@@ -344,7 +344,19 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public boolean hasPermission(String perm) {
         if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, () -> hasPermission(perm));
+            try {
+                return FoliaScheduler.callAtEntity(player, () -> hasPermission(perm));
+            } catch (IllegalStateException e) {
+                // Deferred FAWE edit completion may run after PlayerQuitEvent,
+                // when the entity scheduler cannot accept any more tasks.
+                // Never grant permission to an already-retired player.
+                String reason = e.getMessage();
+                if ("Entity scheduler rejected its task".equals(reason)
+                        || "Entity retired before its task ran".equals(reason)) {
+                    return false;
+                }
+                throw e;
+            }
         }
         return (!plugin.getLocalConfiguration().noOpPermissions && player.isOp())
                 || plugin.getPermissionsResolver().hasPermission(
