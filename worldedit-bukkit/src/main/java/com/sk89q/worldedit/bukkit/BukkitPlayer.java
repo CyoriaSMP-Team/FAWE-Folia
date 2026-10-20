@@ -112,7 +112,13 @@ public class BukkitPlayer extends AbstractPlayerActor {
         //FAWE start
         if (player != null && Settings.settings().CLIPBOARD.USE_DISK) {
             BukkitPlayer cached = WorldEditPlugin.getInstance().getCachedPlayer(player);
-            if (cached == null) {
+            // Folia: do not automatically restore persisted clipboards while
+            // wrapping a Bukkit Player. This constructor can also run in Paper's
+            // asynchronous command tree builder, where FAWE clipboard loading
+            // calls entity-bound methods and can deadlock SessionManager against
+            // the player's region thread. Fresh copy/paste remains available.
+            // Retain legacy clipboard restore on traditional Paper.
+            if (cached == null && !FoliaScheduler.isFolia()) {
                 loadClipboardFromDisk();
             }
         }
@@ -131,9 +137,8 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public UUID getUniqueId() {
-        if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, this::getUniqueId);
-        }
+        // Immutable player identity: safe during Folia join/quit, even before
+        // the entity scheduler starts or after it retires.
         return player.getUniqueId();
     }
 
@@ -161,9 +166,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public String getName() {
-        if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, this::getName);
-        }
+        // Player name is stable and does not require entity scheduling.
         return player.getName();
     }
 
@@ -224,7 +227,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void printRaw(String msg) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { printRaw(msg); return null; });
+            FoliaScheduler.runAtEntity(player, () -> printRaw(msg));
             return;
         }
         for (String part : msg.split("\n")) {
@@ -236,7 +239,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void print(String msg) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { print(msg); return null; });
+            FoliaScheduler.runAtEntity(player, () -> print(msg));
             return;
         }
         for (String part : msg.split("\n")) {
@@ -248,7 +251,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void printDebug(String msg) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { printDebug(msg); return null; });
+            FoliaScheduler.runAtEntity(player, () -> printDebug(msg));
             return;
         }
         for (String part : msg.split("\n")) {
@@ -260,7 +263,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public void printError(String msg) {
         if (needsEntityRegion()) {
-            FoliaScheduler.callAtEntity(player, () -> { printError(msg); return null; });
+            FoliaScheduler.runAtEntity(player, () -> printError(msg));
             return;
         }
         for (String part : msg.split("\n")) {
@@ -272,7 +275,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     public void print(Component component) {
         if (needsEntityRegion()) {
             final Component originalComponent = component;
-            FoliaScheduler.callAtEntity(player, () -> { print(originalComponent); return null; });
+            FoliaScheduler.runAtEntity(player, () -> print(originalComponent));
             return;
         }
         //FAWE start - Add FAWE prefix to all messages
@@ -341,7 +344,19 @@ public class BukkitPlayer extends AbstractPlayerActor {
     @Override
     public boolean hasPermission(String perm) {
         if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, () -> hasPermission(perm));
+            try {
+                return FoliaScheduler.callAtEntity(player, () -> hasPermission(perm));
+            } catch (IllegalStateException e) {
+                // Deferred FAWE edit completion may run after PlayerQuitEvent,
+                // when the entity scheduler cannot accept any more tasks.
+                // Never grant permission to an already-retired player.
+                String reason = e.getMessage();
+                if ("Entity scheduler rejected its task".equals(reason)
+                        || "Entity retired before its task ran".equals(reason)) {
+                    return false;
+                }
+                throw e;
+            }
         }
         return (!plugin.getLocalConfiguration().noOpPermissions && player.isOp())
                 || plugin.getPermissionsResolver().hasPermission(
@@ -411,9 +426,7 @@ public class BukkitPlayer extends AbstractPlayerActor {
     }
 
     public Player getPlayer() {
-        if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, this::getPlayer);
-        }
+        // Exposing the stored reference is not a Bukkit entity operation.
         return player;
     }
 
@@ -495,9 +508,8 @@ public class BukkitPlayer extends AbstractPlayerActor {
 
     @Override
     public SessionKey getSessionKey() {
-        if (needsEntityRegion()) {
-            return FoliaScheduler.callAtEntity(player, this::getSessionKey);
-        }
+        // SessionKeyImpl captures only the UUID and immutable player name.
+        // Avoid scheduling against unspawned or retired Folia entities.
         return new SessionKeyImpl(this.player);
     }
 

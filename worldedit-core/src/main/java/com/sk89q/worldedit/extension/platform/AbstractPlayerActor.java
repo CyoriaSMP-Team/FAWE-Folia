@@ -532,8 +532,20 @@ public abstract class AbstractPlayerActor implements Actor, Player, Cloneable {
 
     @Override
     public void loadClipboardFromDisk() {
+        loadClipboardFromDisk(false);
+    }
+
+    /**
+     * Queue persisted clipboard restoration without waiting from the owning
+     * Folia region thread. Clipboard access remains synchronized by the session.
+     */
+    protected final void loadClipboardFromDiskNonBlocking() {
+        loadClipboardFromDisk(true);
+    }
+
+    private void loadClipboardFromDisk(boolean nonBlocking) {
         if (!clipboardLoading.tryAcquire()) {
-            if (!Fawe.isMainThread()) {
+            if (!nonBlocking && !Fawe.isMainThread()) {
                 try {
                     clipboardLoading.acquire();
                     clipboardLoading.release();
@@ -572,7 +584,7 @@ public abstract class AbstractPlayerActor implements Actor, Player, Cloneable {
                     clipboardLoading.release();
                 }
             });
-            if (Fawe.isMainThread()) {
+            if (nonBlocking || Fawe.isMainThread()) {
                 return;
             }
             fut.get();
