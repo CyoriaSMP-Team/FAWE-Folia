@@ -882,11 +882,14 @@ public final class PaperweightFaweAdapter extends FaweAdapter<net.minecraft.nbt.
 
     @Override
     public RelighterFactory getRelighterFactory() {
-        if (PaperSupport.isPaper() && !FoliaScheduler.isFolia()) {
-            return new PaperweightStarlightRelighterFactory();
-        } else {
-            return new NMSRelighterFactory();
+        if (FoliaScheduler.isFolia()) {
+            return (relightMode, world, queue) ->
+                    new FoliaRegionRelighter(com.sk89q.worldedit.bukkit.BukkitAdapter.adapt(world));
         }
+        if (PaperSupport.isPaper()) {
+            return new PaperweightStarlightRelighterFactory();
+        }
+        return new NMSRelighterFactory();
     }
 
     @Override
