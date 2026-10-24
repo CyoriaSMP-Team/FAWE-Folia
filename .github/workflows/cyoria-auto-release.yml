@@ -1,16 +1,13 @@
 name: Cyoria Folia Auto Release
 
 on:
-  push:
-    branches:
-      - 'main'
-    paths-ignore:
-      - '**/*.md'
-      - '.github/workflows/official-upstream-sync.yml'
-  workflow_dispatch:
+  workflow_run:
+    workflows: ['Folia 1.21.11 Runtime Smoke Test']
+    types: [completed]
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: cyoria-folia-release-${{ github.ref }}
@@ -18,11 +15,21 @@ concurrency:
 
 jobs:
   release:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'folia/1.21.11' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout
+      - name: Checkout tested commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Verify runtime test commit
+        shell: bash
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          test "${{ github.event.workflow_run.event }}" != "pull_request"
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -57,10 +64,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          short_sha="${GITHUB_SHA:0:12}"
+          target_sha="${{ github.event.workflow_run.head_sha }}"
+          short_sha="${target_sha:0:12}"
           tag="cyoria-folia-${GITHUB_RUN_NUMBER}-${short_sha}"
           gh release create "$tag" release-assets/*.jar \
-            --target "$GITHUB_SHA" \
+            --target "$target_sha" \
             --title "FAWE-Folia build ${GITHUB_RUN_NUMBER}" \
-            --notes "Automated CyoriaSMP Folia development build from commit ${GITHUB_SHA}. Compatibility with Folia must be verified before production deployment." \
+            --notes "Automated CyoriaSMP Folia development build from commit ${target_sha}. Compatibility with Folia must be verified before production deployment." \
             --prerelease
