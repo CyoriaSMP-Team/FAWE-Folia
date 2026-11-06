@@ -3,13 +3,14 @@ name: Cyoria Folia Auto Release
 on:
   push:
     branches:
-      - 'main'
+      - '**'
     paths-ignore:
       - '**/*.md'
-      - '.github/workflows/official-upstream-sync.yml'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -23,6 +24,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Verify exact-commit Folia 1.21.11 runtime evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&status=completed&per_page=100" > runtime-runs.json
+          jq -e --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '
+            [.workflow_runs[] | select(
+              .head_sha == $sha and
+              .conclusion == "success" and
+              .name == "Folia 1.21.11 Runtime Test" and
+              .repository.full_name == $repo
+            )] | length > 0
+          ' runtime-runs.json >/dev/null || {
+            echo "No successful Folia 1.21.11 Runtime Test run exists for this exact commit. Release blocked."
+            exit 1
+          }
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
