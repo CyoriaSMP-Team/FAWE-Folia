@@ -1,16 +1,13 @@
 name: Cyoria Folia Auto Release
 
 on:
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   workflow_dispatch:
-    inputs:
-      runtime_test_run_id:
-        description: "Successful Folia 1.21.11 Runtime Test workflow run ID for this exact commit"
-        required: true
-        type: string
-      runtime_tested_sha:
-        description: "Full 40-character commit SHA tested by the runtime workflow"
-        required: true
-        type: string
 
 permissions:
   actions: read
@@ -31,21 +28,17 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RUNTIME_RUN_ID: ${{ inputs.runtime_test_run_id }}
-          RUNTIME_TESTED_SHA: ${{ inputs.runtime_tested_sha }}
         run: |
-          [[ "$RUNTIME_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid runtime workflow run ID"; exit 1; }
-          [[ "$RUNTIME_TESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "A full 40-character SHA is required"; exit 1; }
-          test "$RUNTIME_TESTED_SHA" = "$GITHUB_SHA" || { echo "Runtime-tested SHA does not match release commit"; exit 1; }
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUNTIME_RUN_ID" > runtime-run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&status=completed&per_page=100" > runtime-runs.json
           jq -e --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '
-            .head_sha == $sha and
-            .conclusion == "success" and
-            .name == "Folia 1.21.11 Runtime Test" and
-            .repository.full_name == $repo
-          ' runtime-run.json >/dev/null || {
-            echo "No successful Folia 1.21.11 Runtime Test run exists for this exact repository commit."
-            cat runtime-run.json
+            [.workflow_runs[] | select(
+              .head_sha == $sha and
+              .conclusion == "success" and
+              .name == "Folia 1.21.11 Runtime Test" and
+              .repository.full_name == $repo
+            )] | length > 0
+          ' runtime-runs.json >/dev/null || {
+            echo "No successful Folia 1.21.11 Runtime Test run exists for this exact commit. Release blocked."
             exit 1
           }
       - name: Setup Java
