@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   release:
+    if: ${{ false }} # Fail closed until exact-commit Folia 1.21.11 runtime evidence is available
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
