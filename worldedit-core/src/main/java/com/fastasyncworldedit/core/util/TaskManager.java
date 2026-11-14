@@ -64,6 +64,21 @@ public abstract class TaskManager {
     public abstract int repeatAsync(@Nonnull final Runnable runnable, final int interval);
 
     /**
+     * Schedule a repeating task with a separate initial delay and period, in ticks.
+     *
+     * @param runnable the task to run
+     * @param delay initial delay in ticks
+     * @param period repeat period in ticks
+     * @return the task id number
+     */
+    public int schedule(@Nonnull final Runnable runnable, final long delay, final long period) {
+        if (delay == period && delay <= Integer.MAX_VALUE) {
+            return repeat(runnable, (int) delay);
+        }
+        throw new UnsupportedOperationException("This platform does not support separate task delay and period");
+    }
+
+    /**
      * Run a task asynchronously.
      *
      * @param runnable the task to run

@@ -1,6 +1,7 @@
 package com.fastasyncworldedit.bukkit.regions;
 
 import com.fastasyncworldedit.core.regions.FaweMask;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.core.util.TaskManager;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldedit.internal.util.LogManagerCompat;
@@ -24,15 +25,23 @@ public class GriefPreventionFeature extends BukkitMaskManager implements Listene
     }
 
     public boolean isAllowed(Player player, Claim claim, MaskType type) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(player)) {
+            return FoliaScheduler.callAtEntity(player, () -> isAllowed(player, claim, type));
+        }
         return claim != null && (claim.getOwnerName().equalsIgnoreCase(player.getName()) || claim
                 .getOwnerName()
-                .equals(player.getUniqueId()) || TaskManager.taskManager().sync(() -> type == MaskType.MEMBER &&
-                claim.allowBuild(player, Material.AIR) == null));
+                .equals(player.getUniqueId()) || (FoliaScheduler.isFolia()
+                ? type == MaskType.MEMBER && claim.allowBuild(player, Material.AIR) == null
+                : TaskManager.taskManager().sync(() -> type == MaskType.MEMBER &&
+                        claim.allowBuild(player, Material.AIR) == null)));
     }
 
     @Override
     public FaweMask getMask(final com.sk89q.worldedit.entity.Player wePlayer, MaskType type, boolean isWhitelist) {
         final Player player = BukkitAdapter.adapt(wePlayer);
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(player)) {
+            return FoliaScheduler.callAtEntity(player, () -> getMask(wePlayer, type, isWhitelist));
+        }
         final Claim claim = GriefPrevention.instance.dataStore.getClaimAt(player.getLocation(), true, null);
         if (claim != null) {
             if (isAllowed(player, claim, type)) {

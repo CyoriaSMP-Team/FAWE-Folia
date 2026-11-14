@@ -5,6 +5,7 @@ import ca.spottedleaf.moonrise.patches.chunk_system.scheduling.ChunkHolderManage
 import com.fastasyncworldedit.bukkit.adapter.CachedBukkitAdapter;
 import com.fastasyncworldedit.bukkit.adapter.DelegateSemaphore;
 import com.fastasyncworldedit.bukkit.adapter.NMSAdapter;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.bukkit.util.PaperSupport;
 import com.fastasyncworldedit.core.Fawe;
 import com.fastasyncworldedit.core.FaweCache;
@@ -268,7 +269,8 @@ public final class PaperweightPlatformAdapter extends NMSAdapter {
                 .thenApply(chunk -> {
                     addTicket(serverLevel, chunkX, chunkZ);
                     try {
-                        return toLevelChunk(chunk);
+                        return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                                () -> toLevelChunk(chunk));
                     } catch (Throwable e) {
                         LOGGER.error("Could not asynchronously load chunk at {},{}", chunkX, chunkZ, e);
                         return null;
@@ -289,6 +291,10 @@ public final class PaperweightPlatformAdapter extends NMSAdapter {
                 );
             }
         }
+        if (FoliaScheduler.isFolia()) {
+            return CompletableFuture.supplyAsync(() -> FoliaScheduler.callAtChunk(
+                    serverLevel.getWorld(), chunkX, chunkZ, () -> serverLevel.getChunk(chunkX, chunkZ)));
+        }
         return CompletableFuture.supplyAsync(() -> TaskManager.taskManager().sync(() -> serverLevel.getChunk(chunkX, chunkZ)));
     }
 
@@ -307,6 +313,9 @@ public final class PaperweightPlatformAdapter extends NMSAdapter {
             }
             return null;
         } else {
+            if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(serverLevel.getWorld(), chunkX, chunkZ)) {
+                return null;
+            }
             LevelChunk nmsChunk = serverLevel.getChunkSource().getChunkAtIfCachedImmediately(chunkX, chunkZ);
             if (nmsChunk != null) {
                 addTicket(serverLevel, chunkX, chunkZ);
@@ -327,9 +336,13 @@ public final class PaperweightPlatformAdapter extends NMSAdapter {
 
     private static void addTicket(ServerLevel serverLevel, int chunkX, int chunkZ) {
         // Ensure chunk is definitely loaded before applying a ticket
-        io.papermc.paper.util.MCUtil.MAIN_EXECUTOR.execute(() -> serverLevel
-                .getChunkSource()
-                .addTicketWithRadius(ChunkHolderManager.UNLOAD_COOLDOWN, new ChunkPos(chunkX, chunkZ), 0));
+        Runnable add = () -> serverLevel.getChunkSource()
+                .addTicketWithRadius(ChunkHolderManager.UNLOAD_COOLDOWN, new ChunkPos(chunkX, chunkZ), 0);
+        if (FoliaScheduler.isFolia()) {
+            FoliaScheduler.runAtChunk(serverLevel.getWorld(), chunkX, chunkZ, add);
+        } else {
+            io.papermc.paper.util.MCUtil.MAIN_EXECUTOR.execute(add);
+        }
     }
 
     public static ChunkHolder getPlayerChunk(ServerLevel nmsWorld, final int chunkX, final int chunkZ) {
@@ -343,6 +356,11 @@ public final class PaperweightPlatformAdapter extends NMSAdapter {
 
     @SuppressWarnings("deprecation")
     public static void sendChunk(IntPair pair, ServerLevel nmsWorld, int chunkX, int chunkZ) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(nmsWorld.getWorld(), chunkX, chunkZ)) {
+            FoliaScheduler.runAtChunk(nmsWorld.getWorld(), chunkX, chunkZ,
+                    () -> sendChunk(pair, nmsWorld, chunkX, chunkZ));
+            return;
+        }
         ChunkHolder chunkHolder = getPlayerChunk(nmsWorld, chunkX, chunkZ);
         if (chunkHolder == null) {
             return;
@@ -362,7 +380,7 @@ public final class PaperweightPlatformAdapter extends NMSAdapter {
         if (lockHolder.chunkLock == null) {
             return;
         }
-        MinecraftServer.getServer().execute(() -> {
+        Runnable sendPackets = () -> {
             try {
                 ChunkPos pos = levelChunk.getPos();
                 ClientboundLevelChunkWithLightPacket packet;
@@ -383,11 +401,22 @@ public final class PaperweightPlatformAdapter extends NMSAdapter {
                         null
                     );
                 }
-                nearbyPlayers(nmsWorld, pos).forEach(p -> p.connection.send(packet));
+                nearbyPlayers(nmsWorld, pos).forEach(p -> {
+                    if (FoliaScheduler.isFolia()) {
+                        FoliaScheduler.runAtEntity(p.getBukkitEntity(), () -> p.connection.send(packet));
+                    } else {
+                        p.connection.send(packet);
+                    }
+                });
             } finally {
                 NMSAdapter.endChunkPacketSend(nmsWorld.getWorld().getName(), pair, lockHolder);
             }
-        });
+        };
+        if (FoliaScheduler.isFolia()) {
+            sendPackets.run();
+        } else {
+            MinecraftServer.getServer().execute(sendPackets);
+        }
     }
 
     private static List<ServerPlayer> nearbyPlayers(ServerLevel serverLevel, ChunkPos coordIntPair) {

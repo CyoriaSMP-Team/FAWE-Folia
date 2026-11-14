@@ -2,7 +2,7 @@ package com.sk89q.worldedit.bukkit.adapter.impl.fawe.v1_21_11;
 
 import com.fastasyncworldedit.bukkit.adapter.AbstractBukkitGetBlocks;
 import com.fastasyncworldedit.bukkit.adapter.DelegateSemaphore;
-import com.fastasyncworldedit.bukkit.adapter.NativeEntityFunctionSet;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.bukkit.util.PaperSupport;
 import com.fastasyncworldedit.core.FaweCache;
 import com.fastasyncworldedit.core.configuration.Settings;
@@ -124,6 +124,13 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public void setLightingToGet(char[][] light, int minSectionPosition, int maxSectionPosition) {
+        if (needsRegion()) {
+            FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ, () -> {
+                setLightingToGet(light, minSectionPosition, maxSectionPosition);
+                return null;
+            });
+            return;
+        }
         if (light != null) {
             lightUpdate = true;
             try {
@@ -136,6 +143,13 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public void setSkyLightingToGet(char[][] light, int minSectionPosition, int maxSectionPosition) {
+        if (needsRegion()) {
+            FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ, () -> {
+                setSkyLightingToGet(light, minSectionPosition, maxSectionPosition);
+                return null;
+            });
+            return;
+        }
         if (light != null) {
             lightUpdate = true;
             try {
@@ -148,6 +162,13 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public void setHeightmapToGet(HeightMapType type, int[] data) {
+        if (needsRegion()) {
+            FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ, () -> {
+                setHeightmapToGet(type, data);
+                return null;
+            });
+            return;
+        }
         // height + 1 to match server internal
         BitArrayUnstretched bitArray = new BitArrayUnstretched(MathMan.log2nlz(getChunk().getHeight() + 1), 256);
         bitArray.fromRaw(data);
@@ -158,6 +179,10 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public BiomeType getBiomeType(int x, int y, int z) {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> getBiomeType(x, y, z));
+        }
         LevelChunkSection section = getSections(false)[(y >> 4) - getMinSectionPosition()];
         Holder<Biome> biomes = section.getNoiseBiome(x >> 2, (y & 15) >> 2, z >> 2);
         return PaperweightPlatformAdapter.adapt(biomes, serverLevel);
@@ -165,6 +190,13 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public void removeSectionLighting(int layer, boolean sky) {
+        if (needsRegion()) {
+            FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ, () -> {
+                removeSectionLighting(layer, sky);
+                return null;
+            });
+            return;
+        }
         SectionPos sectionPos = SectionPos.of(getChunk().getPos(), layer);
         DataLayer dataLayer = serverLevel.getChunkSource().getLightEngine().getLayerListener(LightLayer.BLOCK).getDataLayerData(
                 sectionPos);
@@ -194,6 +226,10 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public FaweCompoundTag tile(final int x, final int y, final int z) {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> tile(x, y, z));
+        }
         BlockEntity blockEntity = getChunk().getBlockEntity(new BlockPos((x & 15) + (
                 chunkX << 4), y, (z & 15) + (
                 chunkZ << 4)));
@@ -206,6 +242,9 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public Map<BlockVector3, FaweCompoundTag> tiles() {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ, this::tiles);
+        }
         Map<BlockPos, BlockEntity> nmsTiles = getChunk().getBlockEntities();
         if (nmsTiles.isEmpty()) {
             return Collections.emptyMap();
@@ -215,6 +254,10 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public int getSkyLight(int x, int y, int z) {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> getSkyLight(x, y, z));
+        }
         int layer = y >> 4;
         int alayer = layer - getMinSectionPosition();
         if (skyLight[alayer] == null) {
@@ -240,6 +283,10 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public int getEmittedLight(int x, int y, int z) {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> getEmittedLight(x, y, z));
+        }
         int layer = y >> 4;
         int alayer = layer - getMinSectionPosition();
         if (blockLight[alayer] == null) {
@@ -267,6 +314,10 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public int[] getHeightMap(HeightMapType type) {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> getHeightMap(type));
+        }
         long[] longArray = getChunk().heightmaps.get(Heightmap.Types.valueOf(type.name())).getRawData();
         BitArrayUnstretched bitArray = new BitArrayUnstretched(9, 256, longArray);
         return bitArray.toRaw(new int[256]);
@@ -274,6 +325,10 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public @Nullable FaweCompoundTag entity(final UUID uuid) {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> entity(uuid));
+        }
         List<Entity> entities = PaperweightPlatformAdapter.getEntities(getChunk());
         Entity entity = null;
         for (Entity e : entities) {
@@ -284,7 +339,8 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
         }
         if (entity != null) {
             org.bukkit.entity.Entity bukkitEnt = entity.getBukkitEntity();
-            return FaweCompoundTag.of(BukkitAdapter.adapt(bukkitEnt).getState().getNbt());
+            return FoliaScheduler.callAtEntity(bukkitEnt,
+                    () -> FaweCompoundTag.of(BukkitAdapter.adapt(bukkitEnt).getState().getNbt()));
         }
         for (FaweCompoundTag tag : entities()) {
             if (uuid.equals(NbtUtils.uuid(tag))) {
@@ -296,28 +352,50 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public Collection<FaweCompoundTag> entities() {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ, this::entities);
+        }
         List<Entity> entities = PaperweightPlatformAdapter.getEntities(getChunk());
         if (entities.isEmpty()) {
             return Collections.emptyList();
         }
-        return new NativeEntityFunctionSet<>(entities, Entity::getUUID, e -> {
-            LinValueOutput output = createOutput();
-            e.save(output);
-            return FaweCompoundTag.of(output::buildResult);
-        });
+        List<FaweCompoundTag> snapshot = new ArrayList<>(entities.size());
+        for (Entity entity : entities) {
+            snapshot.add(FoliaScheduler.callAtEntity(entity.getBukkitEntity(), () -> {
+                LinValueOutput output = createOutput();
+                entity.save(output);
+                return FaweCompoundTag.of(output::buildResult);
+            }));
+        }
+        return snapshot;
     }
 
     @Override
     public Set<com.sk89q.worldedit.entity.Entity> getFullEntities() {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ, this::getFullEntities);
+        }
         List<Entity> entities = PaperweightPlatformAdapter.getEntities(getChunk());
         if (entities.isEmpty()) {
             return Collections.emptySet();
         }
-        return new NativeEntityFunctionSet<>(entities, Entity::getUUID, e -> new BukkitEntity(e.getBukkitEntity()));
+        Set<com.sk89q.worldedit.entity.Entity> snapshot = new HashSet<>(entities.size());
+        for (Entity entity : entities) {
+            snapshot.add(FoliaScheduler.callAtEntity(entity.getBukkitEntity(),
+                    () -> new BukkitEntity(entity.getBukkitEntity())));
+        }
+        return snapshot;
     }
 
     private void removeEntity(Entity entity) {
-        entity.discard();
+        if (FoliaScheduler.isFolia()) {
+            FoliaScheduler.callAtEntity(entity.getBukkitEntity(), () -> {
+                entity.discard();
+                return null;
+            });
+        } else {
+            entity.discard();
+        }
     }
 
     @Override
@@ -613,19 +691,31 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
                     for (Entity entity : entities) {
                         UUID uuid = entity.getUUID();
                         if (entityRemoves.contains(uuid)) {
-                            if (createCopy) {
-                                copy.storeEntity(entity);
+                            if (FoliaScheduler.isFolia()) {
+                                FoliaScheduler.callAtEntity(entity.getBukkitEntity(), () -> {
+                                    if (createCopy) {
+                                        copy.storeEntity(entity);
+                                    }
+                                    entity.discard();
+                                    return null;
+                                });
+                            } else {
+                                if (createCopy) {
+                                    copy.storeEntity(entity);
+                                }
+                                removeEntity(entity);
                             }
-                            removeEntity(entity);
                             entitiesRemoved.add(uuid);
                             entityRemoves.remove(uuid);
                         }
                     }
                     if (Settings.settings().EXPERIMENTAL.REMOVE_ENTITY_FROM_WORLD_ON_CHUNK_FAIL) {
-                        for (UUID uuid : entityRemoves) {
-                            Entity entity = nmsWorld.getEntities().get(uuid);
-                            if (entity != null) {
-                                removeEntity(entity);
+                        if (!FoliaScheduler.isFolia()) {
+                            for (UUID uuid : entityRemoves) {
+                                Entity entity = nmsWorld.getEntities().get(uuid);
+                                if (entity != null) {
+                                    removeEntity(entity);
+                                }
                             }
                         }
                     }
@@ -642,65 +732,9 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
                     Iterator<FaweCompoundTag> iterator = entities.iterator();
                     while (iterator.hasNext()) {
                         final FaweCompoundTag nativeTag = iterator.next();
-                        final LinCompoundTag linTag = nativeTag.linTag();
-                        final LinStringTag idTag = linTag.findTag("Id", LinTagType.stringTag());
-                        final LinListTag<LinDoubleTag> posTag = linTag.findListTag("Pos", LinTagType.doubleTag());
-                        final LinListTag<LinFloatTag> rotTag = linTag.findListTag("Rotation", LinTagType.floatTag());
-                        if (idTag == null || posTag == null || rotTag == null) {
-                            LOGGER.error("Unknown entity tag: {}", nativeTag);
-                            continue;
-                        }
-                        final double x = posTag.get(0).valueAsDouble();
-                        final double y = posTag.get(1).valueAsDouble();
-                        final double z = posTag.get(2).valueAsDouble();
-                        final float yaw = rotTag.get(0).valueAsFloat();
-                        final float pitch = rotTag.get(1).valueAsFloat();
-                        final String id = idTag.value();
-
-                        EntityType<?> type = EntityType.byString(id).orElse(null);
-                        if (type != null) {
-                            Entity entity = type.create(nmsWorld, EntitySpawnReason.COMMAND);
-                            if (entity != null) {
-                                final LinCompoundTag.Builder toLoadComponentBuilder = linTag.toBuilder();
-                                for (final String name : Constants.NO_COPY_ENTITY_NBT_FIELDS) {
-                                    toLoadComponentBuilder.remove(name);
-                                }
-                                ValueInput input = createInput(toLoadComponentBuilder.build());
-                                entity.load(input);
-                                entity.absSnapTo(x, y, z, yaw, pitch);
-                                entity.setUUID(NbtUtils.uuid(nativeTag));
-                                Runnable onError = () -> LOGGER.warn(
-                                        "Error creating entity of type `{}` in world `{}` at location `{},{},{}`",
-                                        id,
-                                        nmsWorld.getWorld().getName(),
-                                        x,
-                                        y,
-                                        z
-                                );
-                                if (!set.getSideEffectSet().shouldApply(SideEffect.ENTITY_EVENTS)) {
-                                    entity.spawnReason = CreatureSpawnEvent.SpawnReason.CUSTOM;
-                                    entity.generation = false;
-                                    if (PaperSupport.isPaper()) {
-                                        if (!nmsWorld.moonrise$getEntityLookup().addNewEntity(entity, false)) {
-                                            onError.run();
-                                        }
-                                        continue;
-                                    }
-                                    // Not paper
-                                    try {
-                                        PaperweightPlatformAdapter.getEntitySectionManager(nmsWorld).addNewEntity(entity);
-                                        continue;
-                                    } catch (IllegalAccessException e) {
-                                        // Fallback
-                                        LOGGER.warn("Error bypassing entity events on spawn on Spigot", e);
-                                    }
-                                }
-                                if (!nmsWorld.addFreshEntity(entity, CreatureSpawnEvent.SpawnReason.CUSTOM)) {
-                                    onError.run();
-                                    // Unsuccessful create should not be saved to history
-                                    iterator.remove();
-                                }
-                            }
+                        if (!spawnEntity(nmsWorld, set, nativeTag)) {
+                            // Unsuccessful create should not be saved to history
+                            iterator.remove();
                         }
                     }
                 });
@@ -763,6 +797,73 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
         }
     }
 
+    private boolean spawnEntity(ServerLevel nmsWorld, IChunkSet set, FaweCompoundTag nativeTag) {
+        LinCompoundTag linTag = nativeTag.linTag();
+        LinStringTag idTag = linTag.findTag("Id", LinTagType.stringTag());
+        LinListTag<LinDoubleTag> posTag = linTag.findListTag("Pos", LinTagType.doubleTag());
+        LinListTag<LinFloatTag> rotTag = linTag.findListTag("Rotation", LinTagType.floatTag());
+        if (idTag == null || posTag == null || rotTag == null) {
+            LOGGER.error("Unknown entity tag: {}", nativeTag);
+            return true;
+        }
+        double x = posTag.get(0).valueAsDouble();
+        double y = posTag.get(1).valueAsDouble();
+        double z = posTag.get(2).valueAsDouble();
+        float yaw = rotTag.get(0).valueAsFloat();
+        float pitch = rotTag.get(1).valueAsFloat();
+        String id = idTag.value();
+        int entityChunkX = ((int) Math.floor(x)) >> 4;
+        int entityChunkZ = ((int) Math.floor(z)) >> 4;
+
+        return FoliaScheduler.callAtChunk(nmsWorld.getWorld(), entityChunkX, entityChunkZ, () -> {
+            EntityType<?> type = EntityType.byString(id).orElse(null);
+            if (type == null) {
+                return true;
+            }
+            Entity entity = type.create(nmsWorld, EntitySpawnReason.COMMAND);
+            if (entity == null) {
+                return true;
+            }
+            LinCompoundTag.Builder toLoadComponentBuilder = linTag.toBuilder();
+            for (String name : Constants.NO_COPY_ENTITY_NBT_FIELDS) {
+                toLoadComponentBuilder.remove(name);
+            }
+            ValueInput input = createInput(toLoadComponentBuilder.build());
+            entity.load(input);
+            entity.absSnapTo(x, y, z, yaw, pitch);
+            entity.setUUID(NbtUtils.uuid(nativeTag));
+            Runnable onError = () -> LOGGER.warn(
+                    "Error creating entity of type `{}` in world `{}` at location `{},{},{}",
+                    id,
+                    nmsWorld.getWorld().getName(),
+                    x,
+                    y,
+                    z
+            );
+            if (!set.getSideEffectSet().shouldApply(SideEffect.ENTITY_EVENTS)) {
+                entity.spawnReason = CreatureSpawnEvent.SpawnReason.CUSTOM;
+                entity.generation = false;
+                if (PaperSupport.isPaper()) {
+                    if (!nmsWorld.moonrise$getEntityLookup().addNewEntity(entity, false)) {
+                        onError.run();
+                    }
+                    return true;
+                }
+                try {
+                    PaperweightPlatformAdapter.getEntitySectionManager(nmsWorld).addNewEntity(entity);
+                    return true;
+                } catch (IllegalAccessException e) {
+                    LOGGER.warn("Error bypassing entity events on spawn on Spigot", e);
+                }
+            }
+            if (!nmsWorld.addFreshEntity(entity, CreatureSpawnEvent.SpawnReason.CUSTOM)) {
+                onError.run();
+                return false;
+            }
+            return true;
+        });
+    }
+
     private void updateGet(
             LevelChunk nmsChunk,
             LevelChunkSection[] chunkSections,
@@ -812,6 +913,11 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
     @Override
     @SuppressWarnings("unchecked")
     public char[] update(int layer, char[] data, boolean aggressive) {
+        if (needsRegion()) {
+            final char[] requestedData = data;
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> update(layer, requestedData, aggressive));
+        }
         LevelChunkSection section = getSections(aggressive)[layer];
         // Section is null, return empty array
         if (section == null) {
@@ -887,6 +993,11 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
     }
 
     public LevelChunkSection[] getSections(boolean force) {
+        if (needsRegion()) {
+            final boolean requestedForce = force;
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> getSections(requestedForce));
+        }
         force &= forceLoadSections;
         LevelChunkSection[] tmp = sections;
         if (tmp == null || force) {
@@ -907,13 +1018,18 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
     }
 
     public LevelChunk getChunk() {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ, this::getChunk);
+        }
         LevelChunk levelChunk = this.levelChunk;
         if (levelChunk == null) {
             synchronized (this) {
                 levelChunk = this.levelChunk;
                 if (levelChunk == null) {
                     try {
-                        this.levelChunk = levelChunk = ensureLoaded(this.serverLevel).get();
+                        this.levelChunk = levelChunk = FoliaScheduler.isFolia()
+                                ? serverLevel.getChunk(chunkX, chunkZ)
+                                : ensureLoaded(this.serverLevel).get();
                     } catch (InterruptedException | ExecutionException e) {
                         LOGGER.error("Could not get chunk at {},{}", chunkX, chunkZ, e);
                         throw new FaweException(
@@ -993,12 +1109,22 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
 
     @Override
     public boolean hasSection(int layer) {
+        if (needsRegion()) {
+            final int requestedLayer = layer;
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> hasSection(requestedLayer));
+        }
         layer -= getMinSectionPosition();
         return getSections(false)[layer] != null;
     }
 
     @Override
     public boolean hasNonEmptySection(int layer) {
+        if (needsRegion()) {
+            final int requestedLayer = layer;
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> hasNonEmptySection(requestedLayer));
+        }
         layer -= getMinSectionPosition();
         LevelChunkSection section = getSections(false)[layer];
         return section != null && !section.hasOnlyAir();
@@ -1007,6 +1133,10 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
     @Override
     @SuppressWarnings("unchecked")
     public boolean trim(boolean aggressive) {
+        if (needsRegion()) {
+            return FoliaScheduler.callAtChunk(serverLevel.getWorld(), chunkX, chunkZ,
+                    () -> trim(aggressive));
+        }
         synchronized (this) {
             if (sections == null && (!aggressive || levelChunk == null)) {
                 skyLight = new DataLayer[getSectionCount()];
@@ -1060,6 +1190,10 @@ public class PaperweightGetBlocks extends AbstractBukkitGetBlocks<ServerLevel, L
             }
             return true;
         }
+    }
+
+    private boolean needsRegion() {
+        return FoliaScheduler.isFolia() && !FoliaScheduler.owns(serverLevel.getWorld(), chunkX, chunkZ);
     }
 
 }

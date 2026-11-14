@@ -1,6 +1,7 @@
 package com.fastasyncworldedit.bukkit.adapter;
 
 import com.fastasyncworldedit.core.util.TaskManager;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldedit.bukkit.BukkitWorld;
@@ -15,6 +16,7 @@ import org.bukkit.block.BlockState;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * A base class for version-specific implementations of the BukkitImplAdapter
@@ -46,6 +48,11 @@ public abstract class FaweAdapter<TAG, SERVER_LEVEL> extends CachedBukkitAdapter
             BlockVector3 blockVector3,
             final World world
     ) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(world, blockVector3.x() >> 4, blockVector3.z() >> 4)) {
+            BlockVector3 position = blockVector3;
+            return FoliaScheduler.callAtChunk(world, position.x() >> 4, position.z() >> 4,
+                    () -> generateTree(treeType, editSession, position, world));
+        }
         TreeType bukkitType = BukkitWorld.toBukkitTreeType(treeType);
         if (bukkitType == TreeType.CHORUS_PLANT) {
             // bukkit skips the feature gen which does this offset normally, so we have to add it back
@@ -53,17 +60,22 @@ public abstract class FaweAdapter<TAG, SERVER_LEVEL> extends CachedBukkitAdapter
         }
         BlockVector3 target = blockVector3;
         SERVER_LEVEL serverLevel = getServerLevel(world);
-        List<BlockState> placed = TaskManager.taskManager().sync(() -> {
-            preCaptureStates(serverLevel);
-            try {
-                if (!world.generateTree(BukkitAdapter.adapt(world, target), bukkitType)) {
-                    return null;
+        Supplier<List<BlockState>> capture = () -> {
+            synchronized (serverLevel) {
+                preCaptureStates(serverLevel);
+                try {
+                    if (!world.generateTree(BukkitAdapter.adapt(world, target), bukkitType)) {
+                        return null;
+                    }
+                    return getCapturedBlockStatesCopy(serverLevel);
+                } finally {
+                    postCaptureBlockStates(serverLevel);
                 }
-                return getCapturedBlockStatesCopy(serverLevel);
-            } finally {
-                postCaptureBlockStates(serverLevel);
             }
-        });
+        };
+        List<BlockState> placed = FoliaScheduler.isFolia()
+                ? capture.get()
+                : TaskManager.taskManager().sync(capture);
 
         if (placed == null || placed.isEmpty()) {
             return false;

@@ -16,14 +16,20 @@ import java.util.concurrent.CompletableFuture;
 public enum PaperSupport {
     ;
     public static final boolean PAPER;
+    private static final boolean FOLIA;
 
     static {
         PAPER = hasClass("com.destroystokyo.paper.PaperConfig")
             || hasClass("io.papermc.paper.configuration.Configuration");
+        FOLIA = hasClass("io.papermc.paper.threadedregions.RegionizedServer");
     }
 
     public static boolean isPaper() {
         return PAPER;
+    }
+
+    public static boolean isFolia() {
+        return FOLIA;
     }
 
     public static CompletableFuture<Boolean> teleportAsync(Entity entity, Location location) {

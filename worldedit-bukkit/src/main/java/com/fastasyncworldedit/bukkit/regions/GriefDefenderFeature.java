@@ -1,6 +1,7 @@
 package com.fastasyncworldedit.bukkit.regions;
 
 import com.fastasyncworldedit.core.regions.FaweMask;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.griefdefender.api.GriefDefender;
 import com.griefdefender.api.claim.Claim;
 import com.griefdefender.api.claim.ClaimManager;
@@ -25,12 +26,18 @@ public class GriefDefenderFeature extends BukkitMaskManager implements Listener 
     }
 
     public boolean isAllowed(Player player, Claim claim, MaskType type) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(player)) {
+            return FoliaScheduler.callAtEntity(player, () -> isAllowed(player, claim, type));
+        }
         return type == MaskType.MEMBER && claim.isUserTrusted(player.getUniqueId(), TrustTypes.BUILDER);
     }
 
     @Override
     public FaweMask getMask(final com.sk89q.worldedit.entity.Player wePlayer, MaskType type, boolean isWhitelist) {
         final Player player = BukkitAdapter.adapt(wePlayer);
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(player)) {
+            return FoliaScheduler.callAtEntity(player, () -> getMask(wePlayer, type, isWhitelist));
+        }
         Claim claim = GriefDefender.getCore().getClaimAt(player.getLocation());
         if (claim != null && !claim.isWilderness()) {
             if (isAllowed(player, claim, type)) {
