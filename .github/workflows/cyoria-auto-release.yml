@@ -3,7 +3,7 @@ name: Cyoria Folia Auto Release
 on:
   push:
     branches:
-      - '**'
+      - 'folia/1.21.11'
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   release:
+    if: github.ref == 'refs/heads/folia/1.21.11'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
