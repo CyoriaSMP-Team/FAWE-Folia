@@ -5,6 +5,7 @@ on:
 jobs:
   upload_asset:
     if: ${{ false }} # Fail closed until the published tag has exact-commit Folia 1.21.11 runtime evidence
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v7
