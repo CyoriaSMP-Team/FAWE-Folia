@@ -12,10 +12,12 @@ import com.fastasyncworldedit.core.queue.implementation.QueueHandler;
 import com.fastasyncworldedit.core.queue.implementation.blocks.CharGetBlocks;
 import com.fastasyncworldedit.core.util.MemUtil;
 import com.fastasyncworldedit.core.util.task.FaweThreadUtil;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.sk89q.worldedit.extent.Extent;
 import com.sk89q.worldedit.internal.util.LogManagerCompat;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import org.apache.logging.log4j.Logger;
+import org.bukkit.World;
 
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -30,6 +32,7 @@ public abstract class AbstractBukkitGetBlocks<ServerLevel, LevelChunk> extends C
     private static final Logger LOGGER = LogManagerCompat.getLogger();
 
     protected final ServerLevel serverLevel;
+    private final World bukkitWorld;
     protected final int chunkX;
     protected final int chunkZ;
     protected final ReentrantLock callLock = new ReentrantLock();
@@ -46,6 +49,7 @@ public abstract class AbstractBukkitGetBlocks<ServerLevel, LevelChunk> extends C
     ) {
         super(minY >> 4, maxY >> 4);
         this.serverLevel = serverLevel;
+        this.bukkitWorld = FoliaScheduler.isFolia() ? FoliaScheduler.world(serverLevel) : null;
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
         this.minHeight = minY;
@@ -132,6 +136,17 @@ public abstract class AbstractBukkitGetBlocks<ServerLevel, LevelChunk> extends C
             ServerLevel nmsWorld
     ) {
         try {
+            if (FoliaScheduler.isFolia()) {
+                Extent extent = FaweThreadUtil.getCurrentExtent();
+                return FoliaScheduler.callAtChunk(bukkitWorld, chunkX, chunkZ, () -> {
+                    FaweThreadUtil.setCurrentExtent(extent);
+                    try {
+                        return internalCall(set, finalizer, copyKey, nmsChunk, nmsWorld);
+                    } finally {
+                        FaweThreadUtil.clearCurrentExtent();
+                    }
+                });
+            }
             return internalCall(set, finalizer, copyKey, nmsChunk, nmsWorld);
         } catch (Throwable e) {
             LOGGER.error("Error performing chunk call at chunk {},{}", chunkX, chunkZ, e);
@@ -147,6 +162,22 @@ public abstract class AbstractBukkitGetBlocks<ServerLevel, LevelChunk> extends C
             final Runnable finalizer
     ) throws
             Exception {
+        if (FoliaScheduler.isFolia()) {
+            if (!FoliaScheduler.owns(bukkitWorld, chunkX, chunkZ)) {
+                throw new IllegalStateException("Chunk finalization ran outside its Folia region");
+            }
+            for (Runnable task : syncTasks) {
+                if (task != null) {
+                    task.run();
+                }
+            }
+            if (callback != null) {
+                callback.run();
+            } else if (finalizer != null) {
+                finalizer.run();
+            }
+            return null;
+        }
         if (!syncTasks.isEmpty()) {
             QueueHandler queueHandler = Fawe.instance().getQueueHandler();
 

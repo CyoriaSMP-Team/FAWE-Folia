@@ -1,6 +1,7 @@
 package com.fastasyncworldedit.bukkit.adapter;
 
 import com.fastasyncworldedit.bukkit.util.BukkitItemStack;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.core.util.TaskManager;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.NotABlockException;
@@ -388,6 +389,9 @@ public interface IBukkitAdapter {
      * @return list of {@link org.bukkit.entity.Entity}
      */
     default List<org.bukkit.entity.Entity> getEntities(org.bukkit.World world) {
+        if (FoliaScheduler.isFolia()) {
+            return FoliaScheduler.getLoadedEntities(world);
+        }
         return TaskManager.taskManager().sync(world::getEntities);
     }
 

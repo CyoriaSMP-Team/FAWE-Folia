@@ -17,6 +17,16 @@ public interface IFawe {
 
     TaskManager getTaskManager();
 
+    /**
+     * Whether the current thread is the platform's global tick thread.
+     *
+     * <p>Most platforms use the thread that initialized FAWE. Regionized platforms
+     * have a separate global scheduler thread and override this method.</p>
+     */
+    default boolean isGlobalThread() {
+        return false;
+    }
+
     Collection<FaweMaskManager> getMaskManagers();
 
     /**

@@ -1,6 +1,7 @@
 package com.fastasyncworldedit.bukkit.regions;
 
 import com.fastasyncworldedit.core.configuration.Settings;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.core.regions.FaweMask;
 import com.fastasyncworldedit.core.regions.RegionWrapper;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
@@ -163,6 +164,9 @@ public class WorldGuardFeature extends BukkitMaskManager implements Listener {
             return new FaweMask(RegionWrapper.GLOBAL());
         }
         final Player player = BukkitAdapter.adapt(wePlayer);
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(player)) {
+            return FoliaScheduler.callAtEntity(player, () -> getMask(wePlayer, type, isWhitelist));
+        }
         final LocalPlayer localplayer = this.worldguard.wrapPlayer(player);
         final Location location = player.getLocation();
         final Set<ProtectedRegion> regions = this.getRegions(localplayer, location, isWhitelist);
@@ -181,8 +185,12 @@ public class WorldGuardFeature extends BukkitMaskManager implements Listener {
                     return new FaweMask(RegionWrapper.GLOBAL()) {
                         @Override
                         public boolean isValid(com.sk89q.worldedit.entity.Player player, MaskType type) {
-                            return manager.hasRegion(myRegion.getId())
-                                    && isAllowed(worldguard.wrapPlayer(BukkitAdapter.adapt(player)), myRegion);
+                            org.bukkit.entity.Player bukkitPlayer = BukkitAdapter.adapt(player);
+                            return FoliaScheduler.isFolia()
+                                    ? FoliaScheduler.callAtEntity(bukkitPlayer, () -> manager.hasRegion(myRegion.getId())
+                                            && isAllowed(worldguard.wrapPlayer(bukkitPlayer), myRegion))
+                                    : manager.hasRegion(myRegion.getId())
+                                            && isAllowed(worldguard.wrapPlayer(bukkitPlayer), myRegion);
                         }
                     };
                 } else {
@@ -196,7 +204,19 @@ public class WorldGuardFeature extends BukkitMaskManager implements Listener {
             return new FaweMask(new RegionIntersection(wePlayer.getWorld(), result)) {
                 @Override
                 public boolean isValid(com.sk89q.worldedit.entity.Player player, MaskType type) {
-                    final LocalPlayer localplayer = worldguard.wrapPlayer(BukkitAdapter.adapt(player));
+                    org.bukkit.entity.Player bukkitPlayer = BukkitAdapter.adapt(player);
+                    if (FoliaScheduler.isFolia()) {
+                        return FoliaScheduler.callAtEntity(bukkitPlayer, () -> {
+                            final LocalPlayer localplayer = worldguard.wrapPlayer(bukkitPlayer);
+                            for (ProtectedRegion myRegion : regions) {
+                                if (!manager.hasRegion(myRegion.getId()) || !isAllowed(localplayer, myRegion)) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
+                    }
+                    final LocalPlayer localplayer = worldguard.wrapPlayer(bukkitPlayer);
                     for (ProtectedRegion myRegion : regions) {
                         if (!manager.hasRegion(myRegion.getId()) || !isAllowed(localplayer, myRegion)) {
                             return false;

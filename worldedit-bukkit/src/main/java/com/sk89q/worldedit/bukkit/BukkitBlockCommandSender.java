@@ -20,6 +20,7 @@
 package com.sk89q.worldedit.bukkit;
 
 import com.fastasyncworldedit.core.util.TaskManager;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.extension.platform.AbstractCommandBlockActor;
 import com.sk89q.worldedit.session.SessionKey;
@@ -29,14 +30,15 @@ import com.sk89q.worldedit.util.formatting.text.Component;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.util.formatting.text.adapter.bukkit.TextAdapter;
 import com.sk89q.worldedit.util.formatting.text.format.TextColor;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.command.BlockCommandSender;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -45,16 +47,28 @@ public class BukkitBlockCommandSender extends AbstractCommandBlockActor {
     private static final String UUID_PREFIX = "CMD";
 
     private final BlockCommandSender sender;
-    private final WorldEditPlugin plugin;
     private final UUID uuid;
+    private final World senderWorld;
+    private final int chunkX;
+    private final int chunkZ;
 
     public BukkitBlockCommandSender(WorldEditPlugin plugin, BlockCommandSender sender) {
         super(BukkitAdapter.adapt(checkNotNull(sender).getBlock().getLocation()));
         checkNotNull(plugin);
 
-        this.plugin = plugin;
         this.sender = sender;
+        Block block = sender.getBlock();
+        this.senderWorld = block.getWorld();
+        this.chunkX = block.getX() >> 4;
+        this.chunkZ = block.getZ() >> 4;
         this.uuid = UUID.nameUUIDFromBytes((UUID_PREFIX + sender.getName()).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private <T> T atSenderRegion(Supplier<T> action) {
+        if (FoliaScheduler.isFolia()) {
+            return FoliaScheduler.callAtChunk(senderWorld, chunkX, chunkZ, action::get);
+        }
+        return TaskManager.taskManager().sync(action);
     }
 
     @Override
@@ -66,7 +80,7 @@ public class BukkitBlockCommandSender extends AbstractCommandBlockActor {
     @Deprecated
     public void printRaw(String msg) {
         //FAWE start - ensure executed on main thread
-        TaskManager.taskManager().sync(() -> {
+        atSenderRegion(() -> {
             for (String part : msg.split("\n")) {
                 sender.sendMessage(part);
             }
@@ -79,7 +93,7 @@ public class BukkitBlockCommandSender extends AbstractCommandBlockActor {
     @Deprecated
     public void print(String msg) {
         //FAWE start - ensure executed on main thread
-        TaskManager.taskManager().sync(() -> {
+        atSenderRegion(() -> {
             for (String part : msg.split("\n")) {
                 print(TextComponent.of(part, TextColor.LIGHT_PURPLE));
             }
@@ -92,7 +106,7 @@ public class BukkitBlockCommandSender extends AbstractCommandBlockActor {
     @Deprecated
     public void printDebug(String msg) {
         //FAWE start - ensure executed on main thread
-        TaskManager.taskManager().sync(() -> {
+        atSenderRegion(() -> {
             for (String part : msg.split("\n")) {
                 print(TextComponent.of(part, TextColor.GRAY));
             }
@@ -105,7 +119,7 @@ public class BukkitBlockCommandSender extends AbstractCommandBlockActor {
     @Deprecated
     public void printError(String msg) {
         //FAWE start - ensure executed on main thread
-        TaskManager.taskManager().sync(() -> {
+        atSenderRegion(() -> {
             for (String part : msg.split("\n")) {
                 print(TextComponent.of(part, TextColor.RED));
             }
@@ -117,7 +131,7 @@ public class BukkitBlockCommandSender extends AbstractCommandBlockActor {
     @Override
     public void print(Component component) {
         //FAWE start - ensure executed on main thread
-        TaskManager.taskManager().sync(() -> {
+        atSenderRegion(() -> {
             TextAdapter.sendMessage(sender, WorldEditText.format(component, getLocale()));
             return null;
         });
@@ -191,20 +205,10 @@ public class BukkitBlockCommandSender extends AbstractCommandBlockActor {
 
             @Override
             public boolean isActive() {
-                if (Bukkit.isPrimaryThread()) {
-                    // we can update eagerly
+                return atSenderRegion(() -> {
                     updateActive();
-                } else {
-                    // we should update it eventually
-                    Bukkit.getScheduler().callSyncMethod(
-                            plugin,
-                            () -> {
-                                updateActive();
-                                return null;
-                            }
-                    );
-                }
-                return active;
+                    return active;
+                });
             }
 
             @Override

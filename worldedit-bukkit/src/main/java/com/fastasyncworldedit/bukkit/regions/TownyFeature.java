@@ -1,6 +1,7 @@
 package com.fastasyncworldedit.bukkit.regions;
 
 import com.fastasyncworldedit.core.regions.FaweMask;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.palmergames.bukkit.towny.TownyAPI;
 import com.palmergames.bukkit.towny.object.Resident;
 import com.palmergames.bukkit.towny.object.Town;
@@ -26,6 +27,9 @@ public class TownyFeature extends BukkitMaskManager implements Listener {
     }
 
     public boolean isAllowed(Player player, TownBlock block) {
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(player)) {
+            return FoliaScheduler.callAtEntity(player, () -> isAllowed(player, block));
+        }
         if (block == null) {
             return false;
         }
@@ -57,6 +61,9 @@ public class TownyFeature extends BukkitMaskManager implements Listener {
     @Override
     public FaweMask getMask(final com.sk89q.worldedit.entity.Player wePlayer, MaskType type, boolean isWhitelist) {
         final Player player = BukkitAdapter.adapt(wePlayer);
+        if (FoliaScheduler.isFolia() && !FoliaScheduler.owns(player)) {
+            return FoliaScheduler.callAtEntity(player, () -> getMask(wePlayer, type, isWhitelist));
+        }
         final Location location = player.getLocation();
         final WorldCoord mycoord = WorldCoord.parseWorldCoord(location);
         if (mycoord.isWilderness()) {
@@ -70,10 +77,13 @@ public class TownyFeature extends BukkitMaskManager implements Listener {
             final BlockVector3 pos1 = BlockVector3.at(loc1.getX(), loc1.getY(), loc1.getZ());
             final BlockVector3 pos2 = BlockVector3.at(loc2.getX() - 1, loc2.getY(), loc2.getZ() - 1);
             return new FaweMask(new CuboidRegion(pos1, pos2)) {
-                @Override
-                public boolean isValid(com.sk89q.worldedit.entity.Player player, MaskType type) {
-                    return isAllowed(BukkitAdapter.adapt(player), myplot);
-                }
+                    @Override
+                    public boolean isValid(com.sk89q.worldedit.entity.Player player, MaskType type) {
+                    org.bukkit.entity.Player bukkitPlayer = BukkitAdapter.adapt(player);
+                    return FoliaScheduler.isFolia()
+                            ? FoliaScheduler.callAtEntity(bukkitPlayer, () -> isAllowed(bukkitPlayer, myplot))
+                            : isAllowed(bukkitPlayer, myplot);
+                    }
             };
         }
         return null;

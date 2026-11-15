@@ -208,7 +208,9 @@ public class Fawe {
     }
 
     public static boolean isMainThread() {
-        return instance == null || instance.thread == Thread.currentThread();
+        return instance == null
+                || instance.thread == Thread.currentThread()
+                || instance.implementation.isGlobalThread();
     }
 
     /**

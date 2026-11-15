@@ -11,6 +11,7 @@ import com.fastasyncworldedit.bukkit.regions.ResidenceFeature;
 import com.fastasyncworldedit.bukkit.regions.TownyFeature;
 import com.fastasyncworldedit.bukkit.regions.WorldGuardFeature;
 import com.fastasyncworldedit.bukkit.util.BukkitTaskManager;
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.fastasyncworldedit.bukkit.util.ItemUtil;
 import com.fastasyncworldedit.bukkit.util.PaperSupport;
 import com.fastasyncworldedit.core.FAWEPlatformAdapterImpl;
@@ -171,6 +172,11 @@ public class FaweBukkit implements IFawe, Listener {
     @Override
     public TaskManager getTaskManager() {
         return new BukkitTaskManager(plugin);
+    }
+
+    @Override
+    public boolean isGlobalThread() {
+        return FoliaScheduler.isFolia() && FoliaScheduler.isGlobalThread();
     }
 
     public Plugin getPlugin() {

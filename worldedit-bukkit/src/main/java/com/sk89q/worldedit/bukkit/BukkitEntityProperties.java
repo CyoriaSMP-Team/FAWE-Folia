@@ -19,6 +19,7 @@
 
 package com.sk89q.worldedit.bukkit;
 
+import com.fastasyncworldedit.bukkit.util.FoliaScheduler;
 import com.sk89q.worldedit.entity.metadata.EntityProperties;
 import org.bukkit.entity.AbstractVillager;
 import org.bukkit.entity.Ambient;
@@ -148,12 +149,12 @@ class BukkitEntityProperties implements EntityProperties {
 
     @Override
     public boolean isTamed() {
-        return entity instanceof Tameable && ((Tameable) entity).isTamed();
+        return atEntity(() -> entity instanceof Tameable && ((Tameable) entity).isTamed());
     }
 
     @Override
     public boolean isTagged() {
-        return entity instanceof LivingEntity && entity.getCustomName() != null;
+        return atEntity(() -> entity instanceof LivingEntity && entity.getCustomName() != null);
     }
 
     @Override
@@ -169,6 +170,10 @@ class BukkitEntityProperties implements EntityProperties {
     @Override
     public boolean isWaterCreature() {
         return entity instanceof WaterMob;
+    }
+
+    private <T> T atEntity(java.util.function.Supplier<T> supplier) {
+        return FoliaScheduler.isFolia() ? FoliaScheduler.callAtEntity(entity, supplier::get) : supplier.get();
     }
 
 }
