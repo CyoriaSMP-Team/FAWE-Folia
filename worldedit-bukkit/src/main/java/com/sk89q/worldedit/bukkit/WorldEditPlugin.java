@@ -614,23 +614,33 @@ public class WorldEditPlugin extends JavaPlugin {
      * @return a wrapped player
      */
     public BukkitPlayer wrapPlayer(Player player) {
-        //FAWE start - Use cache over returning a direct BukkitPlayer
+        // Folia owns player join/events on the player's region thread. Synchronizing on
+        // the Bukkit Player can block that region indefinitely when another plugin
+        // holds the Player monitor (seen in WorldEditListener.onJoin on Folia).
+        // Metadata access is expected to occur on the player-owning thread.
+        if (FoliaScheduler.isFolia()) {
+            BukkitPlayer cached = getCachedPlayer(player);
+            return cached != null ? cached : cachePlayer(player);
+        }
+
+        // Keep the original synchronization semantics for traditional Paper/Spigot.
         BukkitPlayer wePlayer = getCachedPlayer(player);
         if (wePlayer != null) {
             return wePlayer;
         }
         synchronized (player) {
             BukkitPlayer bukkitPlayer = getCachedPlayer(player);
-            if (bukkitPlayer == null) {
-                bukkitPlayer = new BukkitPlayer(this, player);
-                player.setMetadata("WE", new FixedMetadataValue(this, bukkitPlayer));
-            }
-            return bukkitPlayer;
+            return bukkitPlayer != null ? bukkitPlayer : cachePlayer(player);
         }
-        //FAWE end
     }
 
     //FAWE start
+    private BukkitPlayer cachePlayer(Player player) {
+        BukkitPlayer wrapped = new BukkitPlayer(this, player);
+        player.setMetadata("WE", new FixedMetadataValue(this, wrapped));
+        return wrapped;
+    }
+
     BukkitPlayer getCachedPlayer(Player player) {
         List<MetadataValue> meta = player.getMetadata("WE");
         if (meta.isEmpty()) {
@@ -640,10 +650,11 @@ public class WorldEditPlugin extends JavaPlugin {
     }
 
     BukkitPlayer reCachePlayer(Player player) {
+        if (FoliaScheduler.isFolia()) {
+            return cachePlayer(player);
+        }
         synchronized (player) {
-            BukkitPlayer wePlayer = new BukkitPlayer(this, player);
-            player.setMetadata("WE", new FixedMetadataValue(this, wePlayer));
-            return wePlayer;
+            return cachePlayer(player);
         }
     }
     //FAWE end

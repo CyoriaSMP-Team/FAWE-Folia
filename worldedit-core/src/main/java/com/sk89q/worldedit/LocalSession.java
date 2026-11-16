@@ -931,10 +931,10 @@ public class LocalSession implements TextureHolder {
                     }
                 } catch (EmptyClipboardException ignored) {
                 }
-                DiskOptimizedClipboard doc = Fawe.instance().submitUUIDKeyQueuedTask(
-                        uuid,
-                        () -> DiskOptimizedClipboard.loadFromFile(file)
-                ).get();
+                // AbstractPlayerActor already runs clipboard restoration in a
+                // UUID-serialized FAWE task. Submitting a second task with the
+                // same UUID and waiting for it deadlocks the single-key queue.
+                DiskOptimizedClipboard doc = DiskOptimizedClipboard.loadFromFile(file);
                 Clipboard clip = doc.toClipboard();
                 ClipboardHolder holder = new ClipboardHolder(clip);
                 setClipboard(holder);

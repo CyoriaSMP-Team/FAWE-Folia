@@ -78,7 +78,20 @@ class BukkitCommandInspector implements CommandInspector {
             InjectedValueStore store = MapBackedValueStore.create();
             store.injectValue(Key.of(Actor.class), context ->
                     Optional.of(plugin.wrapCommandSender(sender)));
-            return mapping.get().getCondition().satisfied(store);
+            try {
+                return mapping.get().getCondition().satisfied(store);
+            } catch (IllegalStateException e) {
+                // Folia may retire a player while Paper builds their command
+                // tree asynchronously. A failed entity task then means the
+                // player is gone; no command permissions need to be sent.
+                String reason = e.getMessage();
+                if (reason != null && (
+                        reason.equals("Entity retired before its task ran")
+                                || reason.equals("Entity scheduler rejected its task"))) {
+                    return false;
+                }
+                throw e;
+            }
         } else {
             LOGGER.warn("BukkitCommandInspector doesn't know how about the command '" + command + "'");
             return false;
