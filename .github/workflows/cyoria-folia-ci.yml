@@ -1,0 +1,39 @@
+name: Cyoria Folia Build CI
+
+on:
+  pull_request:
+    branches: [main, 'folia/1.21.11']
+  push:
+    branches: ['folia/1.21.11']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build and run unit tests
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build --no-daemon --stacktrace
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fawe-folia-gradle-logs
+          path: |
+            **/build/reports/**
+            **/build/test-results/**
+          if-no-files-found: ignore
