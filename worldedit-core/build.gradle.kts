@@ -49,7 +49,6 @@ dependencies {
         because("Needed to resolve annotations in Piston")
     }
 
-
     compileOnly(libs.adventureApi)
     compileOnlyApi(libs.adventureMiniMessage)
     implementation(libs.zstd) { isTransitive = false }
@@ -67,6 +66,7 @@ dependencies {
 
 tasks.test {
     maxHeapSize = "1G"
+    jvmArgs("--add-modules=jdk.incubator.vector")
 }
 
 tasks.compileJava {
@@ -113,12 +113,11 @@ val faweDate = "${rootProject.ext["date"]}"
 tasks.named<Copy>("processResources") {
     // Collect into a local of THIS block. A top-level `val` in a .gradle.kts is a
     // property of the script object, so referencing one from the filesMatching
-    // closure would capture the script itself - which the configuration cache
-    // cannot serialize. A local is captured by value instead.
+    // closure would capture the script itself - the configuration cache cannot serialize.
     val expansions = mapOf(
-            "version" to faweVersion,
-            "commit" to faweCommit,
-            "date" to faweDate
+        "version" to faweVersion,
+        "commit" to faweCommit,
+        "date" to faweDate
     )
     inputs.property("faweVersion", faweVersion)
     inputs.property("faweCommit", faweCommit)
