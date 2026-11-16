@@ -4,6 +4,7 @@ on:
     types: [published]
 jobs:
   upload_asset:
+    if: ${{ false }} # Fail closed until this exact commit has Folia 1.21.11 runtime evidence
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
