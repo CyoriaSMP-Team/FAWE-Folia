@@ -40,7 +40,7 @@ jobs:
           mkdir -p runtime/plugins
           curl -fL "$URL" -o runtime/folia.jar
           echo "$SUM  runtime/folia.jar" | sha256sum -c -
-          JAR="$(find worldedit-bukkit/build/libs -maxdepth 1 -type f -name '*Paper*.jar' ! -name '*sources*' ! -name '*javadoc*' | head -n1)"name '*Bukkit*.jar' ! -name '*sources*' ! -name '*javadoc*' | head -n1)"
+          JAR="$(find worldedit-bukkit/build/libs -maxdepth 1 -type f -name '*Paper*.jar' ! -name '*sources*' ! -name '*javadoc*' | head -n1)"
           test -n "$JAR"
           cp "$JAR" runtime/plugins/FastAsyncWorldEdit.jar
           echo 'eula=true' > runtime/eula.txt
