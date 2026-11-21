@@ -71,7 +71,7 @@ jobs:
           fi
           assert_enabled() {
             local plugin_name="$1"
-            if ! grep -Eiq "Enabling .*\${plugin_name}|\\[\${plugin_name}\\].*Enabling" folia.log; then
+            if ! grep -Fqi "Enabling ${plugin_name}" folia.log; then
               echo "Missing plugin enable log for: $plugin_name"
               grep -Ei "plugin|error|exception|warn|severe" folia.log | tail -n 160 || true
               tail -n 250 folia.log
