@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "25"
       - uses: gradle/actions/setup-gradle@v4
       - name: Build FAWE candidate
         run: ./gradlew --no-daemon :worldedit-bukkit:shadowJar
