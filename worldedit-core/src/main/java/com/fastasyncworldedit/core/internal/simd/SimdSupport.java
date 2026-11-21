@@ -16,6 +16,7 @@ import com.sk89q.worldedit.world.block.BlockTypesCache;
 import jdk.incubator.vector.ShortVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorSpecies;
 import org.apache.logging.log4j.Logger;
 
 import javax.annotation.Nullable;
@@ -90,6 +91,19 @@ public class SimdSupport {
         return (set, get, species) -> get.get(species).compare(VectorOperators.NE, (short) ordinal);
     }
 
+    /**
+     * Broadcast an unsigned block-state ordinal while preserving its 16-bit pattern.
+     *
+     * @param species the vector species to use
+     * @param value the unsigned block-state ordinal
+     * @return a vector whose lanes contain the ordinal bit pattern
+     */
+    static ShortVector broadcast(VectorSpecies<Short> species, char value) {
+        // A char widens to long; broadcast(long) rejects values above Short.MAX_VALUE.
+        // Casting to short preserves the low 16 bits, which are read back as unsigned chars.
+        return ShortVector.broadcast(species, (short) value);
+    }
+
     public static @Nullable VectorizedFilter vectorizedPattern(Pattern pattern) {
         if (!useVectorApi()) {
             return null;
@@ -127,7 +141,7 @@ public class SimdSupport {
         public void applyVector(final VectorFacade get, final VectorFacade set, final VectorMask<Short> mask) {
             ShortVector s = set.getOrZero(mask.vectorSpecies());
             // only change the lanes the mask dictates us to change, keep the rest
-            s = s.blend(ShortVector.broadcast(ShortVector.SPECIES_PREFERRED, ordinal), mask);
+            s = s.blend(broadcast(mask.vectorSpecies(), ordinal), mask);
             set.setOrIgnore(s);
         }
 

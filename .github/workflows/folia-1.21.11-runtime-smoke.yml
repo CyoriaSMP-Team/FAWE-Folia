@@ -1,0 +1,96 @@
+name: Folia 1.21.11 Runtime Smoke Test
+
+on:
+  push:
+    branches: ["sync/fawe-*"]
+  pull_request:
+    branches: ["folia/1.21.11"]
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build FAWE candidate
+        run: ./gradlew --no-daemon :worldedit-bukkit:shadowJar
+      - name: Download Folia and install exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          API="https://fill.papermc.io/v3/projects/folia/versions/1.21.11/builds"
+          UA="CyoriaSMP-GitHub-Actions/1.0 (https://cytechteam.dev)"
+          JSON="$(curl -fsSL -H "User-Agent: $UA" "$API")"
+          BUILD="$(jq -r 'first(.[] | select(.channel=="STABLE") | .id) // "null"' <<< "$JSON")"
+          URL="$(jq -r 'first(.[] | select(.channel=="STABLE") | .downloads."server:default".url) // "null"' <<< "$JSON")"
+          SUM="$(jq -r 'first(.[] | select(.channel=="STABLE") | .downloads."server:default".checksums.sha256) // "null"' <<< "$JSON")"
+          test "$BUILD" != "null" && test "$URL" != "null" && test "$SUM" != "null"
+          mkdir -p runtime/plugins
+          curl -fL "$URL" -o runtime/folia.jar
+          echo "$SUM  runtime/folia.jar" | sha256sum -c -
+          JAR="$(find worldedit-bukkit/build/libs -maxdepth 1 -type f -name '*Paper*.jar' ! -name '*sources*' ! -name '*javadoc*' | head -n1)"
+          test -n "$JAR"
+          cp "$JAR" runtime/plugins/FastAsyncWorldEdit.jar
+          echo 'eula=true' > runtime/eula.txt
+          printf 'online-mode=false\nserver-ip=127.0.0.1\nserver-port=25565\nmax-players=1\nview-distance=2\nsimulation-distance=2\nspawn-protection=0\n' > runtime/server.properties
+          { echo "commit=$CANDIDATE_SHA"; echo "plugin=FastAsyncWorldEdit"; echo "folia_version=1.21.11"; echo "folia_build=$BUILD"; sha256sum runtime/plugins/FastAsyncWorldEdit.jar; } | tee runtime/evidence.txt
+      - name: Start Folia and verify plugin enablement
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd runtime
+          java -Xms1G -Xmx2G -jar folia.jar --nogui > folia.log 2>&1 &
+          PID=$!
+          trap 'kill -TERM "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true' EXIT
+          READY=0
+          for i in $(seq 1 120); do
+            if grep -q "Done (" folia.log; then READY=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "Folia exited before startup completed"
+              cat folia.log
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$READY" -ne 1 ]; then
+            echo "Folia did not reach the ready state within 240 seconds"
+            tail -n 250 folia.log
+            exit 1
+          fi
+          assert_enabled() {
+            local plugin_name="$1"
+            if ! grep -Fqi "Enabling ${plugin_name}" folia.log; then
+              echo "Missing plugin enable log for: $plugin_name"
+              grep -Ei "plugin|error|exception|warn|severe" folia.log | tail -n 160 || true
+              tail -n 250 folia.log
+              exit 1
+            fi
+          }
+          assert_enabled "FastAsyncWorldEdit"
+          if grep -Eiq "Could not load 'plugins/.*\\.jar'|Error occurred while enabling|\\[.*\\].*Severe Error" folia.log; then
+            echo "Plugin loading error detected"
+            grep -Ein "Could not load|Error occurred while enabling|Severe Error|Exception|Caused by" folia.log | tail -n 120 || true
+            exit 1
+          fi
+          echo "Folia startup and plugin enablement checks passed"
+          grep -Ei "Done \\(|Enabling .*(FastAsyncWorldEdit)" folia.log | tail -n 80 || true
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fawe-folia-1.21.11-runtime-${{ github.event.pull_request.head.sha || github.sha }}
+          path: runtime/
+          if-no-files-found: warn
+          retention-days: 30
